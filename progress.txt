@@ -1,0 +1,18 @@
+=================
+Team Progress Log
+=================
+
+
+Format:
+
+[Name] - [Date] (Append each update on top of file)
+- DONE: ...
+- WORKING ON: ...
+- BLOCKED: ...
+
+------------------------------------------------------
+
+Max - 9/17
+- DONE: Pushed initial repo structure
+- WORKING ON: Setting up week 1 assignments
+- BLOCKED: None
