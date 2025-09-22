@@ -12,6 +12,12 @@ Format:
 
 ------------------------------------------------------
 
+Max - 9/21
+- DONE: Built complete music runner with JSON->DSL->Tone.js pipeline, REST API on port 5001,
+        Docker containerization, custom music language parser/generator.
+- WORKING ON: Team integration for week 1 demo
+- BLOCKED: None
+
 Max - 9/17
 - DONE: Pushed initial repo structure
 - WORKING ON: Setting up week 1 assignments
