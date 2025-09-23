@@ -11,6 +11,10 @@ Format:
 - BLOCKED: ...
 
 ------------------------------------------------------
+Carson - 9/23
+- DONE: Completed FastAPI backend scaffold with health/test/run endpoints, added IR+DSL schema, runner client, stub fallback, Dockerfile and docker-compose setup with live reload, validated integration with Node runner (full IR→DSL→Tone.js pipeline).
+- WORKING ON: Preparing for frontend integration (CORS, consistent API contract).
+- BLOCKED: Compiler integration (waiting on compiler implementation).
 
 Max - 9/21
 - DONE: Built complete music runner with JSON->DSL->Tone.js pipeline, REST API on port 5001,
