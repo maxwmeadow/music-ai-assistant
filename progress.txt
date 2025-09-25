@@ -11,6 +11,12 @@ Format:
 - BLOCKED: ...
 
 ------------------------------------------------------
+
+Ayaan - 9/25
+- DONE:- Frontend with two panel layout, assistant on left and monaco code editor on right
+- WORKING ON:- Minor fixes, changing up colors for better readability, small spinner.
+- BLOCKED:- None
+
 Carson - 9/23
 - DONE: Completed FastAPI backend scaffold with health/test/run endpoints, added IR+DSL schema, runner client, stub fallback, Dockerfile and docker-compose setup with live reload, validated integration with Node runner (full IR→DSL→Tone.js pipeline).
 - WORKING ON: Preparing for frontend integration (CORS, consistent API contract).
