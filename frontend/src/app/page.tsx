@@ -8,6 +8,8 @@ export default function Home() {
   const [code, setCode] = useState("// Sonic Pi code will appear here...");
   const [loadingTest, setLoadingTest] = useState(false);
   const [loadingRun, setLoadingRun] = useState(false);
+  const [loadingPlay, setLoadingPlay] = useState(false);
+  const [executableCode, setExecutableCode] = useState<string>('');
   const [toast, setToast] = useState<string | null>(null);
 
   const fetchTest = async () => {
@@ -18,9 +20,9 @@ export default function Home() {
       if (!res.ok) throw new Error("Failed to fetch /test");
       const text = await res.text();
       setCode(text);
-      setToast("✅ Loaded from /test");
+      setToast("Loaded from /test");
     } catch {
-      setToast("❌ Could not load code");
+      setToast("Could not load code");
     } finally {
       setLoadingTest(false);
       setTimeout(() => setToast(null), 2000);
@@ -37,12 +39,65 @@ export default function Home() {
         body: JSON.stringify({ code }),
       });
       if (!res.ok) throw new Error("Runner error");
-      setToast("✅ Sent successfully");
+
+      // Get the response and extract executable code
+      const result = await res.json();
+      console.log("Runner response:", result);
+
+      if (result.meta && result.meta.executable_code) {
+        setExecutableCode(result.meta.executable_code);
+        setToast("Ready to play!");
+      } else {
+        setToast("Sent successfully");
+      }
     } catch {
-      setToast("❌ Failed to send");
+      setToast("Failed to send");
     } finally {
       setLoadingRun(false);
       setTimeout(() => setToast(null), 2000);
+    }
+  };
+
+  const playAudio = async () => {
+    try {
+      setLoadingPlay(true);
+
+      if (!executableCode) {
+        setToast("No audio code available");
+        return;
+      }
+
+      setToast("Loading Tone.js...");
+
+      // Dynamically import Tone.js
+      const Tone = await import('tone');
+
+      // Make Tone available globally for the eval'd code
+      (window as any).Tone = Tone;
+
+      setToast("Playing audio...");
+
+      // Execute the Tone.js code
+      eval(executableCode);
+
+    } catch (error) {
+      console.error("Audio error:", error);
+      setToast("Audio playback failed");
+    } finally {
+      setLoadingPlay(false);
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  const stopAudio = async () => {
+    try {
+      const Tone = await import('tone');
+      Tone.Transport.stop();
+      Tone.Transport.cancel();
+      setToast("⏹️ Audio stopped");
+      setTimeout(() => setToast(null), 2000);
+    } catch (error) {
+      console.error("Stop audio error:", error);
     }
   };
 
@@ -68,19 +123,19 @@ export default function Home() {
               <button className="w-full text-left rounded-lg border px-4 py-3 hover:bg-gray-50">
                 <p className="font-semibold">Hum a melody</p>
                 <p className="text-sm text-gray-600">
-                  I’ll generate a melody based on your humming.
+                  I'll generate a melody based on your humming.
                 </p>
               </button>
               <button className="w-full text-left rounded-lg border px-4 py-3 hover:bg-gray-50">
                 <p className="font-semibold">Beatbox a drum pattern</p>
                 <p className="text-sm text-gray-600">
-                  Here’s a drum pattern inspired by your beatboxing.
+                  Here's a drum pattern inspired by your beatboxing.
                 </p>
               </button>
               <button className="w-full text-left rounded-lg border px-4 py-3 hover:bg-gray-50">
                 <p className="font-semibold">Add a bassline</p>
                 <p className="text-sm text-gray-600">
-                  I’ll create a bassline to go with your melody.
+                  I'll create a bassline to go with your melody.
                 </p>
               </button>
             </div>
@@ -94,17 +149,39 @@ export default function Home() {
               <CodeEditor value={code} onChange={setCode} />
             </div>
 
-            <button
-                onClick={sendToRunner}
-                disabled={loadingRun}
-                className="self-end rounded-md bg-black text-white px-4 py-2 hover:bg-gray-800 disabled:opacity-50"
-            >
-              {loadingRun ? "Sending..." : "Send to Runner"}
-            </button>
+            {/* Control Buttons */}
+            <div className="flex gap-2 justify-end">
+              <button
+                  onClick={sendToRunner}
+                  disabled={loadingRun}
+                  className="rounded-md bg-black text-white px-4 py-2 hover:bg-gray-800 disabled:opacity-50"
+              >
+                {loadingRun ? "Sending..." : "Send to Runner"}
+              </button>
+
+              {executableCode && (
+                <>
+                  <button
+                      onClick={playAudio}
+                      disabled={loadingPlay}
+                      className="rounded-md bg-green-600 text-white px-4 py-2 hover:bg-green-700 disabled:opacity-50"
+                  >
+                    {loadingPlay ? "Loading..." : "▶️ Play"}
+                  </button>
+
+                  <button
+                      onClick={stopAudio}
+                      className="rounded-md bg-red-600 text-white px-4 py-2 hover:bg-red-700"
+                  >
+                    ⏹️ Stop
+                  </button>
+                </>
+              )}
+            </div>
 
             {/* Toast */}
             {toast && (
-                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-sm px-4 py-2 rounded shadow">
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-sm px-4 py-2 rounded shadow z-10">
                   {toast}
                 </div>
             )}

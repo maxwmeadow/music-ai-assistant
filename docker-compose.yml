@@ -1,14 +1,42 @@
 version: "3.9"
 
 services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_BACKEND_URL=http://localhost:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+
   backend:
     build:
-      context: .
-      dockerfile: backend/Dockerfile
+      context: ./backend
+      dockerfile: Dockerfile
     ports:
       - "8000:8000"
-    env_file:
-      - backend/.env
+    environment:
+      - ALLOWED_ORIGINS=http://localhost:3000
+      - RUNNER_INGEST_URL=http://runner:5001/eval
+      - RUNNER_INBOX_PATH=
+      - REQUEST_TIMEOUT_S=3
     volumes:
       - ./backend:/app/backend
-    command: ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    depends_on:
+      - runner
+
+  runner:
+    build:
+      context: ./runner
+      dockerfile: Dockerfile
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./runner:/app
+      - /app/node_modules
