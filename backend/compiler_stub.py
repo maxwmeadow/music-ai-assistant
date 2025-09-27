@@ -35,17 +35,72 @@ def json_ir_to_dsl(ir: IR) -> str:
 
 def compile_scale_to_dsl() -> str:
     """Demo/test stub DSL."""
-    return """tempo(128)
+    return """tempo(100)
 
-track("drums") {
-  kick(0.0)
-  snare(1.0)
-}
+    track("drums") {
+      kick(0.0)
+      kick(2.0)
+      kick(4.0)
+      kick(6.0)
+      kick(8.0)
+      kick(10.0)
+      kick(12.0)
+      kick(14.0)
+      snare(1.0)
+      snare(3.0)
+      snare(5.0)
+      snare(7.0)
+      snare(9.0)
+      snare(11.0)
+      snare(13.0)
+      snare(15.0)
+    }
 
-track("bass") {
-  instrument("fm_bass")
-  note("A2", 2.0, 0.9)
-}
+    track("melody") {
+      instrument("synth")
+      note("C4", 1.0, 0.8)
+      note("C4", 1.0, 0.8)
+      note("G4", 1.0, 0.8)
+      note("G4", 1.0, 0.8)
+      note("A4", 1.0, 0.8)
+      note("A4", 1.0, 0.8)
+      note("G4", 2.0, 0.8)
+      note("F4", 1.0, 0.8)
+      note("F4", 1.0, 0.8)
+      note("E4", 1.0, 0.8)
+      note("E4", 1.0, 0.8)
+      note("D4", 1.0, 0.8)
+      note("D4", 1.0, 0.8)
+      note("C4", 2.0, 0.8)
+    }
+
+    track("bass") {
+      instrument("fm_bass")
+      note("C2", 4.0, 0.9)
+      note("F2", 4.0, 0.9)
+      note("C2", 4.0, 0.9)
+      note("G2", 4.0, 0.9)
+    }
+
+    track("arpeggios") {
+      instrument("bell")
+      note("C5", 0.5, 0.6)
+      note("E5", 0.5, 0.6)
+      note("G5", 0.5, 0.6)
+      note("C6", 0.5, 0.6)
+      note("G5", 0.5, 0.6)
+      note("E5", 0.5, 0.6)
+      note("C5", 0.5, 0.6)
+      note("E5", 0.5, 0.6)
+    }
+
+    track("chord_stabs") {
+      instrument("pad")
+      note("C4", 0.5, 0.5)
+      note("G4", 2.0, 0.3)
+      note("F4", 2.0, 0.3)
+      note("C4", 2.0, 0.3)
+    }
 """
 
 # --- helpers --- #

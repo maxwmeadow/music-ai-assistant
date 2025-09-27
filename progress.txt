@@ -12,6 +12,11 @@ Format:
 
 ------------------------------------------------------
 
+Max - 9/27
+- DONE: Fixed backend-runner communication issues via environment variable configuration. Implemented frontend audio execution with Tone.js dynamic loading and playback controls. Created comprehensive startup automation with PowerShell script for one-command deployment. Created a root level README for steps to use our current demo deployment
+- WORKING ON: Creating week 2 tasks
+- BLOCKED: None
+
 Ayaan - 9/25
 - DONE:- Frontend with two panel layout, assistant on left and monaco code editor on right
 - WORKING ON:- Minor fixes, changing up colors for better readability, small spinner.
