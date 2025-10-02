@@ -1,23 +1,50 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, JSONResponse
+from pathlib import Path
+import shutil
+from datetime import datetime
+from typing import Optional
+
 from .settings import load_settings
 from .schemas import RunBody, RunnerEvalResponse, IR
 from .runner_client import RunnerClient
 from . import compiler_stub
+from .audio_processor import AudioProcessor
+from .model_server import ModelServer
+from .database import TrainingDataDB
 
 settings = load_settings()
 
-# ADD THIS DEBUG LOGGING
+# Initialize components
+app = FastAPI(title="Music Backend", version="0.2.0")
+audio_processor = AudioProcessor(target_sr=16000)
+model_server = ModelServer()
+db = TrainingDataDB(db_path="backend/training_data.db")
+
+# Create audio storage directory
+AUDIO_STORAGE = Path("backend/audio_uploads")
+AUDIO_STORAGE.mkdir(exist_ok=True, parents=True)
+
+# Add to .gitignore
+GITIGNORE_PATH = Path("backend/.gitignore")
+if not GITIGNORE_PATH.exists():
+    GITIGNORE_PATH.write_text("audio_uploads/\n*.db\n")
+else:
+    content = GITIGNORE_PATH.read_text()
+    if "audio_uploads/" not in content:
+        with GITIGNORE_PATH.open("a") as f:
+            f.write("\naudio_uploads/\n*.db\n")
+
 print("=" * 50)
 print("BACKEND STARTUP DEBUG")
 print(f"RUNNER_INGEST_URL: {settings.runner_ingest_url}")
 print(f"RUNNER_INBOX_PATH: {settings.runner_inbox_path}")
 print(f"ALLOWED_ORIGINS: {settings.allowed_origins}")
 print(f"Runner configured: {bool(settings.runner_ingest_url or settings.runner_inbox_path)}")
+print(f"Audio storage: {AUDIO_STORAGE.absolute()}")
+print(f"Database: backend/training_data.db")
 print("=" * 50)
-
-app = FastAPI(title="Music Backend", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -40,9 +67,53 @@ def require_ir(ir: IR | None) -> IR:
     return ir
 
 
+async def save_audio_file(
+    upload_file: UploadFile,
+    model_type: str
+) -> tuple[str, dict]:
+    """
+    Save uploaded audio file and return path + metadata.
+    
+    Returns:
+        Tuple of (file_path, metadata_dict)
+    """
+    # Generate unique filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    original_filename = upload_file.filename or "audio.wav"
+    file_extension = Path(original_filename).suffix or ".wav"
+    filename = f"{model_type}_{timestamp}{file_extension}"
+    file_path = AUDIO_STORAGE / filename
+    
+    # Save file
+    with file_path.open("wb") as buffer:
+        shutil.copyfileobj(upload_file.file, buffer)
+    
+    # Get file metadata
+    file_size = file_path.stat().st_size
+    
+    metadata = {
+        "original_filename": original_filename,
+        "content_type": upload_file.content_type,
+        "file_size_bytes": file_size,
+        "upload_timestamp": timestamp
+    }
+    
+    return str(file_path), metadata
+
+
 @app.get("/health")
 def health():
     return {"ok": True, "version": app.version}
+
+
+@app.get("/stats")
+def get_stats():
+    """Get training data statistics"""
+    try:
+        stats = db.get_statistics()
+        return {"ok": True, "stats": stats}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting stats: {str(e)}")
 
 
 @app.get("/test", response_class=PlainTextResponse)
@@ -62,10 +133,8 @@ def run(body: RunBody):
     if provided != 1:
         raise HTTPException(status_code=400, detail="Provide exactly one of 'code' or 'ir'.")
 
-    # Check if runner is configured
     runner_configured = bool(settings.runner_ingest_url or settings.runner_inbox_path)
     print(f"Runner configured: {runner_configured}")
-    print(f"Runner URL: {settings.runner_ingest_url}")
 
     try:
         if runner_configured:
@@ -73,7 +142,6 @@ def run(body: RunBody):
 
             if body.code is not None:
                 print("Processing DSL code")
-                # Create a simple IR for DSL passthrough
                 payload = {
                     "ir": {
                         "metadata": {"tempo": 120},
@@ -102,3 +170,265 @@ def run(body: RunBody):
     else:
         dsl = compiler_stub.json_ir_to_dsl(require_ir(body.ir))
         return RunnerEvalResponse(dsl=dsl, meta={"source": "local-stub"})
+
+
+@app.post("/hum2melody")
+async def hum_to_melody(
+    audio: UploadFile = File(...),
+    save_training_data: bool = Form(True)
+):
+    """
+    Process humming audio and return melody in IR format.
+    
+    Args:
+        audio: Audio file (WAV or MP3)
+        save_training_data: Whether to save for future model training
+        
+    Returns:
+        JSON with melody IR and metadata
+    """
+    print("[HUM2MELODY] Endpoint called")
+    print(f"File: {audio.filename}, Type: {audio.content_type}")
+    
+    try:
+        # Read audio bytes
+        audio_bytes = await audio.read()
+        
+        # Save audio file
+        file_path, file_metadata = await save_audio_file(audio, "hum2melody")
+        print(f"Saved audio to: {file_path}")
+        
+        # Process audio
+        print("Processing audio...")
+        audio_features = audio_processor.preprocess_for_hum2melody(audio_bytes)
+        print(f"Extracted features: duration={audio_features['duration']:.2f}s")
+        
+        # Get model prediction
+        print("Getting model prediction...")
+        melody_track = await model_server.predict_melody(audio_features)
+        
+        # Create IR
+        ir = IR(
+            metadata={
+                "tempo": 120,
+                "key": "Am",
+                "time_signature": "4/4",
+                "duration": audio_features['duration']
+            },
+            tracks=[melody_track]
+        )
+        
+        # Save to database if requested
+        audio_id = None
+        if save_training_data:
+            original_filename = audio.filename or "audio.wav"
+            audio_id = db.save_audio_sample(
+                file_path=file_path,
+                model_type="hum2melody",
+                file_format=Path(original_filename).suffix.lstrip('.') or "wav",
+                sample_rate=audio_features['sample_rate'],
+                duration=audio_features['duration'],
+                metadata=file_metadata
+            )
+            print(f"Saved to database with ID: {audio_id}")
+            
+            # Save prediction
+            db.save_prediction(
+                audio_sample_id=audio_id,
+                model_type="hum2melody",
+                prediction=melody_track.model_dump()
+            )
+        
+        return JSONResponse(content={
+            "status": "success",
+            "ir": ir.model_dump(),
+            "audio_id": audio_id,
+            "metadata": {
+                "duration": audio_features['duration'],
+                "num_notes": len(melody_track.notes) if melody_track.notes else 0,
+                "file_path": file_path
+            }
+        })
+        
+    except Exception as e:
+        print(f"Error in hum2melody: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error processing audio: {str(e)}")
+
+
+@app.post("/beatbox2drums")
+async def beatbox_to_drums(
+    audio: UploadFile = File(...),
+    save_training_data: bool = Form(True)
+):
+    """
+    Process beatbox audio and return drum pattern in IR format.
+    
+    Args:
+        audio: Audio file (WAV or MP3)
+        save_training_data: Whether to save for future model training
+        
+    Returns:
+        JSON with drum pattern IR and metadata
+    """
+    print("[BEATBOX2DRUMS] Endpoint called")
+    print(f"File: {audio.filename}, Type: {audio.content_type}")
+    
+    try:
+        # Read audio bytes
+        audio_bytes = await audio.read()
+        
+        # Save audio file
+        file_path, file_metadata = await save_audio_file(audio, "beatbox2drums")
+        print(f"Saved audio to: {file_path}")
+        
+        # Process audio
+        print("Processing audio...")
+        audio_features = audio_processor.preprocess_for_beatbox(audio_bytes)
+        print(f"Extracted features: duration={audio_features['duration']:.2f}s, tempo={audio_features['tempo']:.1f}")
+        
+        # Get model prediction
+        print("Getting model prediction...")
+        drums_track = await model_server.predict_drums(audio_features)
+        
+        # Create IR
+        ir = IR(
+            metadata={
+                "tempo": int(audio_features['tempo']),
+                "time_signature": "4/4",
+                "duration": audio_features['duration']
+            },
+            tracks=[drums_track]
+        )
+        
+        # Save to database if requested
+        audio_id = None
+        if save_training_data:
+            original_filename = audio.filename or "audio.wav"
+            audio_id = db.save_audio_sample(
+                file_path=file_path,
+                model_type="beatbox2drums",
+                file_format=Path(original_filename).suffix.lstrip('.') or "wav",
+                sample_rate=audio_features['sample_rate'],
+                duration=audio_features['duration'],
+                metadata=file_metadata
+            )
+            print(f"Saved to database with ID: {audio_id}")
+            
+            # Save prediction
+            db.save_prediction(
+                audio_sample_id=audio_id,
+                model_type="beatbox2drums",
+                prediction=drums_track.model_dump()
+            )
+        
+        return JSONResponse(content={
+            "status": "success",
+            "ir": ir.model_dump(),
+            "audio_id": audio_id,
+            "metadata": {
+                "duration": audio_features['duration'],
+                "tempo": audio_features['tempo'],
+                "num_samples": len(drums_track.samples) if drums_track.samples else 0,
+                "file_path": file_path
+            }
+        })
+        
+    except Exception as e:
+        print(f"Error in beatbox2drums: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error processing audio: {str(e)}")
+
+
+@app.post("/arrange")
+async def arrange_track(body: dict):
+    """
+    Take existing IR and add accompanying tracks (bass, chords, drums).
+    
+    Request body should contain:
+    {
+        "ir": <existing IR object>,
+        "style": "pop" | "jazz" | "electronic" (optional)
+    }
+    
+    Returns:
+        Enhanced IR with additional tracks
+    """
+    print("[ARRANGE] Endpoint called")
+    
+    try:
+        # Parse input IR
+        if "ir" not in body:
+            raise HTTPException(status_code=400, detail="Missing 'ir' in request body")
+        
+        existing_ir = IR(**body["ir"])
+        style = body.get("style", "pop")
+        
+        print(f"Arranging {len(existing_ir.tracks)} existing track(s) in {style} style")
+        
+        # Get arrangement from model
+        enhanced_ir = await model_server.arrange_track(existing_ir, style=style)
+        
+        print(f"Generated {len(enhanced_ir.tracks)} total tracks")
+        
+        return JSONResponse(content={
+            "status": "success",
+            "ir": enhanced_ir.model_dump(),
+            "metadata": {
+                "original_tracks": len(existing_ir.tracks),
+                "total_tracks": len(enhanced_ir.tracks),
+                "added_tracks": len(enhanced_ir.tracks) - len(existing_ir.tracks),
+                "style": style
+            }
+        })
+        
+    except Exception as e:
+        print(f"Error in arrange: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error arranging track: {str(e)}")
+
+
+@app.post("/feedback")
+async def submit_feedback(
+    audio_id: int = Form(...),
+    rating: int = Form(...),
+    prediction_id: Optional[int] = Form(None),
+    feedback_text: Optional[str] = Form(None)
+):
+    """
+    Submit user feedback for a prediction.
+    
+    Args:
+        audio_id: Database ID of audio sample
+        rating: User rating (1-5)
+        prediction_id: Optional ID of specific prediction
+        feedback_text: Optional text feedback
+        
+    Returns:
+        Success confirmation
+    """
+    print(f"[FEEDBACK] Received: audio_id={audio_id}, rating={rating}")
+    
+    try:
+        if not 1 <= rating <= 5:
+            raise HTTPException(status_code=400, detail="Rating must be between 1 and 5")
+        
+        feedback_id = db.save_feedback(
+            audio_sample_id=audio_id,
+            rating=rating,
+            prediction_id=prediction_id,
+            feedback_text=feedback_text
+        )
+        
+        return JSONResponse(content={
+            "status": "success",
+            "feedback_id": feedback_id,
+            "message": "Thank you for your feedback!"
+        })
+        
+    except Exception as e:
+        print(f"Error saving feedback: {e}")
+        raise HTTPException(status_code=500, detail=f"Error saving feedback: {str(e)}")
