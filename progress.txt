@@ -11,6 +11,11 @@ Format:
 - BLOCKED: ...
 
 ------------------------------------------------------
+Ayaan - 10/4
+-DONE: Implemented audio recording setup with permission for microphone access, waveform visualization, audio processing pipeline, new panel for recording audio on the left side, general UI fixes improving clarity.
+-WORKING ON: Recording and playback controls with visual feedback, integration to send code to backend.
+-BLOCKED: None
+
 
 Carson - 10/2
 - DONE: Implemented audio processing endpoints (/hum2melody, /beatbox2drums, /arrange, /feedback, /stats), audio preprocessing with librosa, model serving architecture, SQLite training data collection, automated testing, comprehensive documentation.
