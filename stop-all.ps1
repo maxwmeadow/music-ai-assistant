@@ -1,7 +1,7 @@
 ﻿Write-Host "ðŸ›‘ Stopping all services..." -ForegroundColor Red
-try { Stop-Process -Id 2484 -Force -ErrorAction SilentlyContinue } catch {}
-try { Stop-Process -Id 22020 -Force -ErrorAction SilentlyContinue } catch {}
-try { Stop-Process -Id 3344 -Force -ErrorAction SilentlyContinue } catch {}
+try { Stop-Process -Id 38508 -Force -ErrorAction SilentlyContinue } catch {}
+try { Stop-Process -Id 16996 -Force -ErrorAction SilentlyContinue } catch {}
+try { Stop-Process -Id 33356 -Force -ErrorAction SilentlyContinue } catch {}
 
 # Also kill any remaining processes on these ports
 Get-NetTCPConnection -LocalPort 3000,8000,5001 -ErrorAction SilentlyContinue | ForEach-Object {
