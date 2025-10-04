@@ -5,16 +5,17 @@ from typing import Tuple
 
 class AudioProcessor:
     """
-    Class to handle audio preprocessing for models
-    Converts raw audio bytes to features
+    Handles audio preprocessing for different model types.
+    Converts raw audio bytes into features suitable for ML models.
     """
+    
     def __init__(self, target_sr: int = 16000):
         """
         Args:
             target_sr: Target sample rate for audio processing (default 16kHz)
         """
         self.target_sr = target_sr
-
+    
     def load_audio(self, audio_bytes: bytes) -> Tuple[np.ndarray, int]:
         """
         Load audio from bytes and return audio array and sample rate.
@@ -28,7 +29,7 @@ class AudioProcessor:
         # Load audio from bytes using librosa
         audio_file = io.BytesIO(audio_bytes)
         audio, sr = librosa.load(audio_file, sr=self.target_sr, mono=True)
-        return audio, int(sr)
+        return audio, int(sr)  # Cast to int since sample rates are always integers
     
     def preprocess_for_hum2melody(self, audio_bytes: bytes) -> dict:
         """
@@ -55,7 +56,7 @@ class AudioProcessor:
             n_mels=128,
             fmax=8000
         )
-
+        
         # Convert to log scale (dB)
         mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
         
@@ -84,7 +85,7 @@ class AudioProcessor:
             "sample_rate": sr,
             "audio_shape": audio.shape
         }
-
+    
     def preprocess_for_beatbox(self, audio_bytes: bytes) -> dict:
         """
         Preprocess audio for drum pattern extraction from beatboxing.
@@ -108,7 +109,7 @@ class AudioProcessor:
             y=audio_percussive,
             sr=sr
         )
-
+        
         # Detect onsets (drum hits)
         onset_frames = librosa.onset.onset_detect(
             onset_envelope=onset_env,
@@ -172,4 +173,3 @@ class AudioProcessor:
         """
         import soundfile as sf
         sf.write(output_path, audio, sr)
-    
