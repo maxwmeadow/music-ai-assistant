@@ -2,12 +2,16 @@ const express = require('express');
 const cors = require('cors');
 const MusicJSONParser = require('./parser');
 const DSLGenerator = require('./generator');
-
+const path = require('path')
 const app = express();
 const PORT = process.env.PORT || 5001;
 
+
 app.use(cors());
 app.use(express.json());
+app.use('/samples', express.static(path.join(__dirname, 'samples')));
+app.use('/mappings', express.static(path.join(__dirname, 'mappings')));
+app.use('/catalog.json', express.static(path.join(__dirname, 'catalog.json')));
 
 app.use((req, res, next) => {
     const timestamp = new Date().toISOString();
