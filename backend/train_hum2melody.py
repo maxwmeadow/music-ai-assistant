@@ -12,7 +12,7 @@ import os
 import json
 import argparse
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 import torch
 import torch.nn as nn
@@ -50,7 +50,7 @@ def parse_args():
     parser.add_argument("--patience", type=int, default=EARLY_STOPPING_PATIENCE)
     return parser.parse_args()
 
-def setup_device(device_override: str = None):
+def setup_device(device_override: Optional[str] = None):
     if device_override:
         device = torch.device(device_override)
     else:
@@ -101,6 +101,27 @@ def load_checkpoint_if_requested(resume_path: str, model: nn.Module, optimizer: 
         best_val_loss = ckpt.get("val_loss", float("inf"))
         print(f"Resumed at epoch {start_epoch}, best_val_loss={best_val_loss:.6f}")
     return start_epoch, best_val_loss
+
+def downsample_target(target: torch.Tensor, output_frames: int) -> torch.Tensor:
+    """
+    Downsample target to match model output frames.
+    
+    Args:
+        target: Shape (batch, 500, 88)
+        output_frames: Model output frames (62)
+    
+    Returns:
+        Downsampled target: Shape (batch, output_frames, 88)
+    """
+    # Take every 8th frame (500/8 ≈ 62)
+    stride = target.shape[1] // output_frames
+    downsampled = target[:, ::stride, :]
+    
+    # Ensure exact match
+    if downsampled.shape[1] > output_frames:
+        downsampled = downsampled[:, :output_frames, :]
+    
+    return downsampled
 
 def main():
     args = parse_args()
@@ -158,7 +179,7 @@ def main():
     criterion = nn.BCEWithLogitsLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=3, verbose=True
+        optimizer, mode="min", factor=0.5, patience=3,
     )
 
 
@@ -195,7 +216,8 @@ def main():
 
                 optimizer.zero_grad()
                 output = model(data)
-                loss = criterion(output, target)
+                target_downsampled = downsample_target(target, output.shape[1])
+                loss = criterion(output, target_downsampled)
                 loss.backward()
                 optimizer.step()
 
@@ -220,7 +242,8 @@ def main():
                     target = target.to(device, non_blocking=pin_memory).float()
 
                     output = model(data)
-                    v_loss = criterion(output, target).item()
+                    target_downsampled = downsample_target(target, output.shape[1])
+                    v_loss = criterion(output, target_downsampled).item()
                     val_loss += v_loss
                     val_iter.set_postfix({"val_loss": f"{v_loss:.4f}"})
 
