@@ -11,6 +11,11 @@ Format:
 - BLOCKED: ...
 
 ------------------------------------------------------
+Ayaan - 10/5
+-DONE: Created train_hum2melodyfile, complete with imports, parameters (change accordingly), dataset, model and training loop.
+-WORKING ON: Saving training history to JSON
+-BLOCKED: Linking to Hum2melody model (must be pytorch nm model)
+
 Ayaan - 10/4
 -DONE: Implemented audio recording setup with permission for microphone access, waveform visualization, audio processing pipeline, new panel for recording audio on the left side, general UI fixes improving clarity.
 -WORKING ON: Recording and playback controls with visual feedback, integration to send code to backend.
