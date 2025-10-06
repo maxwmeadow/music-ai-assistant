@@ -35,20 +35,45 @@ def json_ir_to_dsl(ir: IR) -> str:
 
 def compile_scale_to_dsl() -> str:
     """Demo/test stub DSL."""
-    return """tempo(120)
+    return """tempo(128)
 
 track("melody") {
   instrument("piano/grand_piano_k")
-  note("C4", 1.0, 0.8)
-  note("E4", 1.0, 0.8)
-  note("G4", 1.0, 0.8)
-  note("C5", 1.0, 0.8)
+  note("E4", 0.5, 0.8)
+  note("D4", 0.5, 0.7)
+  note("C4", 0.5, 0.8)
+  note("D4", 0.5, 0.7)
+  note("E4", 0.5, 0.8)
+  note("E4", 0.5, 0.8)
+  note("E4", 1.0, 0.9)
+}
+
+track("chords") {
+  instrument("synth/pad/pd_fatness_pad")
+  chord(["C4", "E4", "G4"], 2.0, 0.6)
+  chord(["F4", "A4", "C5"], 2.0, 0.6)
+  chord(["G4", "B4", "D5"], 2.0, 0.6)
+  chord(["C4", "E4", "G4"], 2.0, 0.6)
 }
 
 track("bass") {
-  instrument("bass")
+  instrument("bass/jp8000_sawbass")
   note("C2", 2.0, 0.9)
+  note("F2", 2.0, 0.9)
   note("G2", 2.0, 0.9)
+  note("C2", 2.0, 0.9)
+}
+
+track("drums") {
+  instrument("drums/bedroom_drums")
+  note("C2", 0.5, 1.0)
+  note("F#2", 0.5, 0.7)
+  note("D2", 0.5, 1.0)
+  note("F#2", 0.5, 0.7)
+  note("C2", 0.5, 1.0)
+  note("F#2", 0.5, 0.7)
+  note("D2", 0.5, 1.0)
+  note("F#2", 0.5, 0.7)
 }
 """
 
