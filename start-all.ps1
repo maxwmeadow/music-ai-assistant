@@ -15,7 +15,7 @@ function Start-TrackedService {
 Write-Host "Starting services in order..." -ForegroundColor Cyan
 
 # Start Runner first
-$runnerProcess = Start-TrackedService "Runner" "$PWD\runner" "npm run dev"
+$runnerProcess = Start-TrackedService "Runner" "$PWD\runner" "npm start"
 Start-Sleep 3
 
 # Start Backend with environment variables
