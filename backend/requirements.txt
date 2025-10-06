@@ -12,3 +12,6 @@ scipy>=1.11.0
 
 # File handling
 python-multipart
+
+torch
+tqdm
