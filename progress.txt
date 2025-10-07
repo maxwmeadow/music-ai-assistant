@@ -11,6 +11,11 @@ Format:
 - BLOCKED: ...
 
 ------------------------------------------------------
+Carson - 10/6
+-DONE: Implemented CRNN model architecture (6.4M parameters, 3 CNN + 2 LSTM layers), PyTorch dataset with mel spectrogram preprocessing and validation, complete inference pipeline with frame-to-note post-processing, full integration tests (all passing).
+-WORKING ON: Awaiting labeled training data. Will update model_server to use real predictor instead of mock and will have to make sure the predictor is getting raw audio bytes
+-BLOCKED: Cannot test backend integration without trained model checkpoint.
+
 Ayaan - 10/5
 -DONE: Created train_hum2melodyfile, complete with imports, parameters (change accordingly), dataset, model and training loop.
 -WORKING ON: Saving training history to JSON
