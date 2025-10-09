@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import {useState, useRef, useEffect, JSX} from "react";
 import { ParsedTrack } from "@/lib/dslParser";
 
 interface TimelineNote {
@@ -25,6 +25,56 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
   const [draggingNote, setDraggingNote] = useState<{trackId: string, noteIndex: number, startX: number, initialStart: number} | null>(null);
   const [resizingNote, setResizingNote] = useState<{trackId: string, noteIndex: number, startX: number, initialDuration: number} | null>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
+  const [snapEnabled, setSnapEnabled] = useState(true);
+  const [snapValue, setSnapValue] = useState(0.25);
+
+  const getTempoFromDSL = (): number => {
+    const tempoMatch = dslCode.match(/tempo\((\d+)\)/);
+    return tempoMatch ? parseInt(tempoMatch[1]) : 120;
+  };
+
+  const beatsToSeconds = (beats: number): number => {
+    const tempo = getTempoFromDSL();
+    return (beats * 60) / tempo;
+  };
+
+  const secondsToBeats = (seconds: number): number => {
+    const tempo = getTempoFromDSL();
+    return (seconds * tempo) / 60;
+  };
+
+  const snapToGrid = (beats: number): number => {
+    if (!snapEnabled) return beats;
+    return Math.round(beats / snapValue) * snapValue;
+  };
+
+  /**
+   * Determines grid subdivision level based on zoom
+   * Returns: { subdivision: number, showSubdivisions: boolean }
+   */
+  const getGridSubdivision = (zoom: number): { subdivision: number, showSubdivisions: boolean, showSixteenths: boolean } => {
+    // zoom is pixels per beat
+
+    if (zoom < 60) {
+      // Very zoomed out - only show beats (quarters)
+      return { subdivision: 1, showSubdivisions: false, showSixteenths: false };
+    } else if (zoom < 120) {
+      // Medium zoom - show eighths
+      return { subdivision: 0.5, showSubdivisions: true, showSixteenths: false };
+    } else {
+      // Very zoomed in - show sixteenths
+      return { subdivision: 0.25, showSubdivisions: true, showSixteenths: true };
+    }
+  };
+
+  const SNAP_OPTIONS = [
+    { label: '1/4 (Whole)', value: 4 },
+    { label: '1/2 (Half)', value: 2 },
+    { label: '1 (Quarter)', value: 1 },
+    { label: '1/2 (8th)', value: 0.5 },
+    { label: '1/4 (16th)', value: 0.25 },
+    { label: '1/8 (32nd)', value: 0.125 },
+  ];
 
   const parseNotesFromDSL = (trackId: string): TimelineNote[] => {
     const trackMatch = dslCode.match(new RegExp(`track\\("${trackId}"\\)\\s*{([^}]+)}`, 's'));
@@ -32,40 +82,35 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
 
     const trackContent = trackMatch[1];
     const notes: TimelineNote[] = [];
-    let currentTime = 0;
 
     // Parse regular notes
-    const noteMatches = trackContent.matchAll(/note\("([^"]+)",\s*([\d.]+),\s*([\d.]+)\)/g);
+    const noteMatches = trackContent.matchAll(/note\("([^"]+)",\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g);
     for (const match of noteMatches) {
-      const [, noteName, duration, velocity] = match;
+      const [, noteName, start, duration, velocity] = match;
       const pitch = noteToPitch(noteName);
 
       notes.push({
         pitch,
-        start: currentTime,
-        duration: parseFloat(duration),
+        start: secondsToBeats(parseFloat(start)),  // Convert to beats
+        duration: secondsToBeats(parseFloat(duration)),  // Convert to beats
         velocity: parseFloat(velocity)
       });
-
-      currentTime += parseFloat(duration);
     }
 
     // Parse chords
-    const chordMatches = trackContent.matchAll(/chord\(\[([^\]]+)\],\s*([\d.]+),\s*([\d.]+)\)/g);
+    const chordMatches = trackContent.matchAll(/chord\(\[([^\]]+)\],\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g);
     for (const match of chordMatches) {
-      const [, notesStr, duration, velocity] = match;
+      const [, notesStr, start, duration, velocity] = match;
       const chordNotes = notesStr.split(',').map(n => n.trim().replace(/"/g, ''));
       const rootPitch = noteToPitch(chordNotes[0]);
 
       notes.push({
         pitch: rootPitch,
-        start: currentTime,
-        duration: parseFloat(duration),
+        start: secondsToBeats(parseFloat(start)),  // Convert to beats
+        duration: secondsToBeats(parseFloat(duration)),  // Convert to beats
         velocity: parseFloat(velocity),
         isChord: true
       });
-
-      currentTime += parseFloat(duration);
     }
 
     return notes.sort((a, b) => a.start - b.start);
@@ -90,27 +135,24 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
   };
 
   const updateDSLWithNewNotes = (trackId: string, updatedNotes: TimelineNote[]) => {
-    // Reconstruct DSL for this track
     const trackMatch = dslCode.match(new RegExp(`(track\\("${trackId}"\\)\\s*{)([^}]+)(})`, 's'));
     if (!trackMatch) return;
 
     const [fullMatch, opening, , closing] = trackMatch;
 
-    // Keep instrument line
     const instrumentMatch = trackMatch[2].match(/instrument\("([^"]+)"\)/);
     const instrumentLine = instrumentMatch ? `  instrument("${instrumentMatch[1]}")\n` : '';
 
-    // Generate new note lines
+    // Generate new note lines, converting beats back to seconds
     const noteLines = updatedNotes.map(note => {
       const noteName = pitchToNote(note.pitch);
-      const duration = note.duration.toFixed(1);
-      const velocity = note.velocity.toFixed(1);
+      const startSeconds = beatsToSeconds(note.start);
+      const durationSeconds = beatsToSeconds(note.duration);
 
       if (note.isChord) {
-        // For chords, we'd need to store original chord notes - for now just use root
-        return `  chord(["${noteName}"], ${duration}, ${velocity})`;
+        return `  chord(["${noteName}"], ${startSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${note.velocity.toFixed(1)})`;
       }
-      return `  note("${noteName}", ${duration}, ${velocity})`;
+      return `  note("${noteName}", ${startSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${note.velocity.toFixed(1)})`;
     }).join('\n');
 
     const newTrackContent = `${opening}\n${instrumentLine}${noteLines}\n${closing}`;
@@ -118,6 +160,7 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
 
     onCodeChange(newDSL);
   };
+
 
   const handleNoteMouseDown = (e: React.MouseEvent, trackId: string, noteIndex: number, isResize: boolean) => {
     e.stopPropagation();
@@ -144,24 +187,19 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
   const handleMouseMove = (e: MouseEvent) => {
     if (draggingNote) {
       const deltaX = e.clientX - draggingNote.startX;
-      const deltaTime = deltaX / zoom;
-      const newStart = Math.max(0, draggingNote.initialStart + deltaTime);
+      const deltaBeats = deltaX / zoom;
+      const rawStart = draggingNote.initialStart + deltaBeats;
+      const newStart = snapToGrid(Math.max(0, rawStart));
 
       const notes = parseNotesFromDSL(draggingNote.trackId);
       notes[draggingNote.noteIndex].start = newStart;
 
-      // Recalculate durations to maintain spacing
-      notes.sort((a, b) => a.start - b.start);
-      for (let i = 0; i < notes.length - 1; i++) {
-        const gap = notes[i + 1].start - notes[i].start;
-        notes[i].duration = Math.max(0.1, gap);
-      }
-
       updateDSLWithNewNotes(draggingNote.trackId, notes);
     } else if (resizingNote) {
       const deltaX = e.clientX - resizingNote.startX;
-      const deltaDuration = deltaX / zoom;
-      const newDuration = Math.max(0.1, resizingNote.initialDuration + deltaDuration);
+      const deltaBeats = deltaX / zoom;
+      const rawDuration = resizingNote.initialDuration + deltaBeats;
+      const newDuration = Math.max(snapValue, snapToGrid(rawDuration));
 
       const notes = parseNotesFromDSL(resizingNote.trackId);
       notes[resizingNote.noteIndex].duration = newDuration;
@@ -213,107 +251,213 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
   }, 10);
 
   return (
-    <div className="bg-gray-950 border border-white/10 rounded-xl overflow-hidden">
-      <div className="bg-gray-900 border-b border-white/10 p-4 flex items-center justify-between">
-        <h3 className="text-white font-semibold">Timeline Editor</h3>
-        <div className="flex items-center gap-4">
-          <div className="text-xs text-gray-400">
-            {selectedNote && "Press Delete to remove note"}
-          </div>
-          <label className="text-sm text-gray-400">Zoom:</label>
-          <input
-            type="range"
-            min="20"
-            max="200"
-            value={zoom}
-            onChange={(e) => setZoom(Number(e.target.value))}
-            className="w-32"
-          />
-        </div>
-      </div>
-
-      <div className="bg-gray-900 border-b border-white/10 px-4 py-2 relative" style={{ paddingLeft: '200px' }}>
-        <div className="relative h-6" style={{ width: `${maxDuration * zoom}px` }}>
-          {Array.from({ length: Math.ceil(maxDuration) + 1 }).map((_, i) => (
-            <div
-              key={i}
-              className="absolute top-0 h-full border-l border-gray-700"
-              style={{ left: `${i * zoom}px` }}
-            >
-              <span className="text-xs text-gray-500 absolute top-0 -translate-x-1/2">
-                {i}s
-              </span>
+      <div className="bg-gray-950 border border-white/10 rounded-xl overflow-hidden">
+        <div className="bg-gray-900 border-b border-white/10 p-4 flex items-center justify-between">
+          <h3 className="text-white font-semibold">Timeline Editor</h3>
+          <div className="flex items-center gap-4">
+            <div className="text-xs text-gray-400">
+              {selectedNote && "Press Delete to remove note"}
             </div>
-          ))}
-          {isPlaying && (
-            <div
-              className="absolute top-0 w-0.5 h-full bg-red-500 z-10"
-              style={{ left: `${currentTime * zoom}px` }}
-            />
-          )}
-        </div>
-      </div>
 
-      <div className="overflow-auto max-h-96" ref={timelineRef}>
-        {tracks.map((track) => {
-          const notes = parseNotesFromDSL(track.id);
-          return (
-            <div key={track.id} className="flex border-b border-white/5">
-              <div className="w-48 bg-gray-900 border-r border-white/10 p-4 flex-shrink-0">
+            {/* Snap controls */}
+            <div className="flex items-center gap-2">
+              <button
+                  onClick={() => setSnapEnabled(!snapEnabled)}
+                  className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                      snapEnabled
+                          ? 'bg-purple-600 text-white'
+                          : 'bg-white/10 text-gray-400'
+                  }`}
+              >
+                SNAP
+              </button>
+
+              <select
+                  value={snapValue}
+                  onChange={(e) => setSnapValue(Number(e.target.value))}
+                  disabled={!snapEnabled}
+                  className="bg-white/10 text-white text-xs rounded-lg px-2 py-1 border border-white/20 disabled:opacity-50"
+              >
+                {SNAP_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value} className="bg-gray-900">
+                      {opt.label}
+                    </option>
+                ))}
+              </select>
+            </div>
+
+            <label className="text-sm text-gray-400">Zoom:</label>
+            <input
+                type="range"
+                min="20"
+                max="200"
+                value={zoom}
+                onChange={(e) => setZoom(Number(e.target.value))}
+                className="w-32"
+            />
+          </div>
+        </div>
+
+        {/* Time ruler and track rows container */}
+        <div className="flex">
+          {/* Fixed track labels column */}
+          <div className="flex-shrink-0">
+            <div className="w-48 h-8 bg-gray-900 border-r border-white/10"></div>
+            {tracks.map((track) => (
+              <div key={track.id} className="w-48 h-20 bg-gray-900 border-r border-white/10 border-b border-white/5 p-4">
                 <div className="text-white font-medium">{track.id}</div>
                 <div className="text-xs text-gray-500">{track.instrument?.split('/').pop()}</div>
               </div>
+            ))}
+          </div>
 
-              <div className="relative flex-1 h-20 bg-gray-950" style={{ width: `${maxDuration * zoom}px` }}>
-                {Array.from({ length: Math.ceil(maxDuration) + 1 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="absolute top-0 h-full border-l border-gray-800/50"
-                    style={{ left: `${i * zoom}px` }}
-                  />
-                ))}
+          {/* Scrollable timeline area */}
+          <div className="flex-1 overflow-auto max-h-96" ref={timelineRef}>
+            <div style={{ width: `${maxDuration * zoom}px` }}>
+              {/* Time ruler */}
+              <div className="relative h-8 bg-gray-900 border-b border-white/10">
+                {(() => {
+                  const {subdivision, showSubdivisions, showSixteenths} = getGridSubdivision(zoom);
+                  const totalBeats = Math.ceil(maxDuration);
+                  const markers: JSX.Element[] = [];
 
-                {notes.map((note, idx) => (
-                  <div
-                    key={idx}
-                    className={`absolute top-2 bottom-2 ${
-                      note.isChord 
-                        ? 'bg-blue-600 hover:bg-blue-500' 
-                        : 'bg-purple-600 hover:bg-purple-500'
-                    } rounded transition-colors ${
-                      selectedNote?.trackId === track.id && selectedNote?.noteIndex === idx
-                        ? 'ring-2 ring-white'
-                        : ''
-                    } ${draggingNote || resizingNote ? 'cursor-grabbing' : 'cursor-grab'}`}
-                    style={{
-                      left: `${note.start * zoom}px`,
-                      width: `${note.duration * zoom}px`,
-                    }}
-                    onMouseDown={(e) => handleNoteMouseDown(e, track.id, idx, false)}
-                  >
-                    <div className="text-xs text-white p-1 truncate pointer-events-none">
-                      {pitchToNote(note.pitch)}{note.isChord ? ' ♫' : ''}
-                    </div>
+                  for (let beat = 0; beat <= totalBeats; beat += subdivision) {
+                    const bar = Math.floor(beat / 4) + 1;
+                    const beatInBar = (beat % 4);
+                    const isMeasureStart = beat % 4 === 0;
+                    const isBeatStart = beat % 1 === 0;
+                    const isEighthNote = beat % 0.5 === 0 && beat % 1 !== 0;
+                    const isSixteenthNote = beat % 0.25 === 0 && beat % 0.5 !== 0;
 
-                    {/* Resize handle */}
-                    <div
-                      className="absolute right-0 top-0 bottom-0 w-2 bg-white/30 hover:bg-white/50 cursor-ew-resize"
-                      onMouseDown={(e) => handleNoteMouseDown(e, track.id, idx, true)}
-                    />
-                  </div>
-                ))}
+                    let borderClass = '';
+                    let labelContent = null;
+
+                    if (isMeasureStart) {
+                      borderClass = 'border-l-2 border-gray-500';
+                      labelContent = (
+                        <span className="text-xs font-bold text-gray-200 absolute top-0.5 left-1">
+                          {bar}
+                        </span>
+                      );
+                    } else if (isBeatStart) {
+                      borderClass = 'border-l border-gray-600';
+                      labelContent = (
+                        <span className="text-xs text-gray-400 absolute top-0.5 left-1">
+                          {Math.floor(beatInBar) + 1}
+                        </span>
+                      );
+                    } else if (isEighthNote && showSubdivisions) {
+                      borderClass = 'border-l border-gray-700/50';
+                    } else if (isSixteenthNote && showSixteenths) {
+                      borderClass = 'border-l border-gray-800/30';
+                    }
+
+                    markers.push(
+                      <div
+                        key={beat}
+                        className={`absolute top-0 h-full ${borderClass}`}
+                        style={{left: `${beat * zoom}px`}}
+                      >
+                        {labelContent}
+                      </div>
+                    );
+                  }
+
+                  return markers;
+                })()}
 
                 {isPlaying && (
                   <div
-                    className="absolute top-0 w-0.5 h-full bg-red-500 z-10 pointer-events-none"
-                    style={{ left: `${currentTime * zoom}px` }}
+                    className="absolute top-0 w-0.5 h-full bg-red-500 z-10"
+                    style={{left: `${secondsToBeats(currentTime) * zoom}px`}}
                   />
                 )}
               </div>
+
+              {/* Track timelines */}
+              {tracks.map((track) => {
+                const notes = parseNotesFromDSL(track.id);
+                return (
+                  <div key={track.id} className="relative h-20 bg-gray-950 border-b border-white/5">
+                    {/* Grid lines */}
+                    {(() => {
+                      const { subdivision, showSubdivisions, showSixteenths } = getGridSubdivision(zoom);
+                      const totalBeats = Math.ceil(maxDuration);
+                      const gridLines: JSX.Element[] = [];
+
+                      for (let beat = 0; beat <= totalBeats; beat += subdivision) {
+                        const isMeasureStart = beat % 4 === 0;
+                        const isBeatStart = beat % 1 === 0;
+                        const isEighthNote = beat % 0.5 === 0 && beat % 1 !== 0;
+
+                        let borderClass = '';
+
+                        if (isMeasureStart) {
+                          borderClass = 'border-l border-gray-700';
+                        } else if (isBeatStart) {
+                          borderClass = 'border-l border-gray-800/70';
+                        } else if (isEighthNote && showSubdivisions) {
+                          borderClass = 'border-l border-gray-800/40';
+                        } else if (showSixteenths) {
+                          borderClass = 'border-l border-gray-800/20';
+                        }
+
+                        gridLines.push(
+                          <div
+                            key={beat}
+                            className={`absolute top-0 h-full ${borderClass}`}
+                            style={{ left: `${beat * zoom}px` }}
+                          />
+                        );
+                      }
+
+                      return gridLines;
+                    })()}
+
+                    {/* Notes */}
+                    {notes.map((note, idx) => (
+                      <div
+                        key={idx}
+                        className={`absolute top-2 bottom-2 ${
+                          note.isChord
+                            ? 'bg-blue-600 hover:bg-blue-500'
+                            : 'bg-purple-600 hover:bg-purple-500'
+                        } rounded transition-colors ${
+                          selectedNote?.trackId === track.id && selectedNote?.noteIndex === idx
+                            ? 'ring-2 ring-white'
+                            : ''
+                        } ${draggingNote || resizingNote ? 'cursor-grabbing' : 'cursor-grab'}`}
+                        style={{
+                          left: `${note.start * zoom}px`,
+                          width: `${note.duration * zoom}px`,
+                        }}
+                        onMouseDown={(e) => handleNoteMouseDown(e, track.id, idx, false)}
+                      >
+                        <div className="text-xs text-white p-1 truncate pointer-events-none">
+                          {pitchToNote(note.pitch)}{note.isChord ? ' ♫' : ''}
+                        </div>
+
+                        {/* Resize handle */}
+                        <div
+                          className="absolute right-0 top-0 bottom-0 w-2 bg-white/30 hover:bg-white/50 cursor-ew-resize"
+                          onMouseDown={(e) => handleNoteMouseDown(e, track.id, idx, true)}
+                        />
+                      </div>
+                    ))}
+
+                    {/* Playback cursor */}
+                    {isPlaying && (
+                      <div
+                        className="absolute top-0 w-0.5 h-full bg-red-500 z-10 pointer-events-none"
+                        style={{left: `${secondsToBeats(currentTime) * zoom}px`}}
+                      />
+                    )}
+                  </div>
+                );
+              })}
             </div>
-          );
-        })}
+          </div>
+        </div>
       </div>
-    </div>
   );
 }

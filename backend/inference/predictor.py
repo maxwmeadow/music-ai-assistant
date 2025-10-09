@@ -1,59 +1,48 @@
 """
-Melody Predictor - Inference Pipeline for Hum2Melody
+Improved Predictor with better post-processing.
 
-Handles:
-- Model loading from checkpoint
-- Audio preprocessing (reuses dataset logic)
-- Inference with trained model
-- Post-processing predictions to discrete notes
-- Conversion to IR format for backend
-
-Usage:
-    predictor = MelodyPredictor('checkpoints/best_model.pth')
-    track = predictor.predict_from_file('audio.wav')
-    # OR
-    track = predictor.predict_from_bytes(audio_bytes)
+Key improvements:
+1. Works with new 125-frame model
+2. Better note merging
+3. Overlap resolution (monophonic constraint)
+4. Configurable thresholds
 """
 
 import torch
 import numpy as np
 import librosa
 from pathlib import Path
-from typing import Dict, Any, List, Tuple, Optional
-import warnings
-
-from models.hum2melody_model import Hum2MelodyCRNN
-from schemas import Track, Note
+from typing import List, Dict, Any, Optional
 
 
-class MelodyPredictor:
+from ..models.hum2melody_model import ImprovedHum2MelodyCRNN
+from ..schemas import Track, Note
+
+
+class ImprovedMelodyPredictor:
     """
-    Inference engine for melody prediction from audio.
-    
-    Args:
-        checkpoint_path (str): Path to trained model checkpoint
-        device (str): Device to run inference on ('cuda' or 'cpu')
-        threshold (float): Activation threshold for note detection (default: 0.5)
-        min_note_duration (float): Minimum note duration in seconds (default: 0.1)
+    Improved inference engine with better post-processing.
     """
-    
+
     def __init__(
         self,
         checkpoint_path: str,
         device: Optional[str] = None,
-        threshold: float = 0.5,
-        min_note_duration: float = 0.1
+        threshold: float = 0.4,  # Lower threshold
+        min_note_duration: float = 0.12,  # Slightly shorter
+        merge_tolerance: float = 0.08,  # Merge nearby notes
+        confidence_threshold: float = 0.3  # Filter low confidence
     ):
         self.checkpoint_path = Path(checkpoint_path)
-        
+
         # Setup device
         if device:
             self.device = torch.device(device)
         else:
             self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        
-        print(f"[MelodyPredictor] Using device: {self.device}")
-        
+
+        print(f"[ImprovedPredictor] Using device: {self.device}")
+
         # Hyperparameters (must match training)
         self.sample_rate = 16000
         self.n_mels = 128
@@ -62,128 +51,97 @@ class MelodyPredictor:
         self.min_midi = 21
         self.max_midi = 108
         self.num_notes = 88
-        
+
         # Post-processing parameters
         self.threshold = threshold
         self.min_note_duration = min_note_duration
-        
-        # Frame rate calculation
+        self.merge_tolerance = merge_tolerance
+        self.confidence_threshold = confidence_threshold
+
+        # Frame rate
         self.frame_rate = self.sample_rate / self.hop_length  # 31.25 fps
-        
+
         # Load model
         self.model = self._load_model()
-        
-        print(f"[MelodyPredictor] Model loaded successfully")
+
+        print(f"[ImprovedPredictor] Model loaded successfully")
         print(f"  Threshold: {threshold}")
         print(f"  Min note duration: {min_note_duration}s")
-    
-    def _load_model(self) -> Hum2MelodyCRNN:
-        """Load model from checkpoint."""
+        print(f"  Merge tolerance: {merge_tolerance}s")
+
+    def _load_model(self) -> ImprovedHum2MelodyCRNN:
+        """Load improved model from checkpoint."""
         if not self.checkpoint_path.exists():
             raise FileNotFoundError(f"Checkpoint not found: {self.checkpoint_path}")
-        
+
         # Create model
-        model = Hum2MelodyCRNN(
-            n_mels=self.n_mels,
-            hidden_size=256,
-            num_notes=self.num_notes
-        )
-        
+        model = ImprovedHum2MelodyCRNN()
+
         # Load checkpoint
         checkpoint = torch.load(self.checkpoint_path, map_location=self.device)
-        
+
         # Handle different checkpoint formats
         if 'model_state_dict' in checkpoint:
             model.load_state_dict(checkpoint['model_state_dict'])
-            print(f"[MelodyPredictor] Loaded from epoch {checkpoint.get('epoch', 'unknown')}")
-            print(f"  Val loss: {checkpoint.get('val_loss', 'unknown')}")
+            epoch = checkpoint.get('epoch', 'unknown')
+            val_metrics = checkpoint.get('val_metrics', {})
+            print(f"[ImprovedPredictor] Loaded from epoch {epoch}")
+            if 'f1' in val_metrics:
+                print(f"  Val F1: {val_metrics['f1']:.4f}")
         else:
             model.load_state_dict(checkpoint)
-        
+
         # Set to eval mode and move to device
         model.eval()
         model.to(self.device)
-        
+
         return model
-    
+
     def predict_from_file(self, audio_path: str) -> Track:
-        """
-        Predict melody from audio file.
-        
-        Args:
-            audio_path: Path to audio file
-            
-        Returns:
-            Track object with predicted notes in IR format
-        """
+        """Predict melody from audio file."""
         audio_path_obj = Path(audio_path)
-        
+
         if not audio_path_obj.exists():
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
-        
+
         # Load audio
         audio, sr = librosa.load(audio_path_obj, sr=self.sample_rate, mono=True)
-        
+
         return self.predict_from_audio(audio)
-    
+
     def predict_from_bytes(self, audio_bytes: bytes) -> Track:
-        """
-        Predict melody from audio bytes.
-        
-        Args:
-            audio_bytes: Raw audio file bytes
-            
-        Returns:
-            Track object with predicted notes in IR format
-        """
+        """Predict melody from audio bytes."""
         import io
-        
+
         # Load audio from bytes
         audio_file = io.BytesIO(audio_bytes)
         audio, sr = librosa.load(audio_file, sr=self.sample_rate, mono=True)
-        
+
         return self.predict_from_audio(audio)
-    
+
     def predict_from_audio(self, audio: np.ndarray) -> Track:
-        """
-        Predict melody from audio array.
-        
-        Args:
-            audio: Audio samples (numpy array)
-            
-        Returns:
-            Track object with predicted notes in IR format
-        """
-        # Preprocess audio to mel spectrogram
+        """Predict melody from audio array."""
+        # Preprocess audio
         mel_spec = self._preprocess_audio(audio)
-        
+
         # Run inference
         probabilities = self._run_inference(mel_spec)
-        
+
         # Post-process to discrete notes
         notes = self._postprocess_predictions(probabilities)
-        
-        # Create Track in IR format
+
+        # Create Track
         track = Track(
             id="melody",
             instrument="lead_synth",
             notes=notes,
             samples=None
         )
-        
+
         return track
-    
+
     def _preprocess_audio(self, audio: np.ndarray) -> torch.Tensor:
-        """
-        Preprocess audio to mel spectrogram.
-        Same logic as MelodyDataset._load_mel_spectrogram
-        
-        Args:
-            audio: Audio samples
-            
-        Returns:
-            Mel spectrogram tensor, shape (1, 1, target_frames, n_mels)
-        """
+        """Preprocess audio to mel spectrogram."""
         # Extract mel spectrogram
         mel_spec = librosa.feature.melspectrogram(
             y=audio,
@@ -194,15 +152,15 @@ class MelodyPredictor:
             fmin=80,
             fmax=8000
         )
-        
-        # Convert to log scale (dB)
+
+        # Convert to log scale
         mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
-        
-        # Normalize to [0, 1]
+
+        # Normalize
         mel_spec_normalized = (mel_spec_db + 80) / 80
         mel_spec_normalized = np.clip(mel_spec_normalized, 0, 1)
-        
-        # Pad or truncate to target_frames
+
+        # Pad or truncate
         if mel_spec_normalized.shape[1] < self.target_frames:
             pad_width = self.target_frames - mel_spec_normalized.shape[1]
             mel_spec_normalized = np.pad(
@@ -212,238 +170,293 @@ class MelodyPredictor:
             )
         elif mel_spec_normalized.shape[1] > self.target_frames:
             mel_spec_normalized = mel_spec_normalized[:, :self.target_frames]
-        
+
         # Convert to tensor: (n_mels, time) -> (1, time, n_mels) -> (1, 1, time, n_mels)
         mel_tensor = torch.FloatTensor(mel_spec_normalized.T).unsqueeze(0).unsqueeze(0)
-        
+
         return mel_tensor
-    
+
     def _run_inference(self, mel_spec: torch.Tensor) -> np.ndarray:
-        """
-        Run model inference.
-        
-        Args:
-            mel_spec: Mel spectrogram tensor (1, 1, target_frames, n_mels)
-            
-        Returns:
-            Probabilities array, shape (output_frames, num_notes)
-        """
+        """Run model inference."""
         mel_spec = mel_spec.to(self.device)
-        
+
         with torch.no_grad():
             # Forward pass
-            logits = self.model(mel_spec)  # (1, 62, 88)
-            
-            # Apply sigmoid to get probabilities
+            logits = self.model(mel_spec)  # (1, 125, 88)
+
+            # Apply sigmoid
             probabilities = torch.sigmoid(logits)
-            
-            # Remove batch dimension and convert to numpy
-            probabilities = probabilities.squeeze(0).cpu().numpy()  # (62, 88)
-        
+
+            # Convert to numpy
+            probabilities = probabilities.squeeze(0).cpu().numpy()  # (125, 88)
+
         return probabilities
-    
+
     def _postprocess_predictions(self, probabilities: np.ndarray) -> List[Note]:
         """
-        Post-process predictions to discrete notes.
-        
-        This is the critical step: converting frame-level probabilities to
-        discrete note events with start times and durations.
-        
-        Args:
-            probabilities: Probability matrix, shape (num_frames, num_notes)
-            
-        Returns:
-            List of Note objects
+        Post-process predictions with improved logic.
+
+        Steps:
+        1. Extract raw notes from probabilities
+        2. Merge nearby notes of same pitch
+        3. Merge tiny onset notes with sustained notes ← NEW!
+        4. Resolve overlapping notes (monophonic constraint)
+        5. Filter by confidence and duration
         """
+        # Step 1: Extract raw notes
+        raw_notes = self._extract_notes_from_probabilities(probabilities)
+
+        # Step 2: Merge nearby notes of same pitch
+        merged_notes = self._merge_nearby_notes(raw_notes)
+
+        # Step 3: Merge onset notes ← ADD THIS LINE
+        cleaned_notes = self._merge_onset_notes(merged_notes)
+
+        # Step 4: Resolve overlaps (keep most confident)
+        resolved_notes = self._resolve_overlapping_notes(cleaned_notes)  # ← Use cleaned_notes
+
+        # Step 5: Filter by confidence and duration
+        filtered_notes = self._filter_notes(resolved_notes)
+
+        # Convert to Note objects
+        note_objects = []
+        for note in filtered_notes:
+            note_objects.append(Note(
+                pitch=int(note['pitch']),
+                start=float(note['start']),
+                duration=float(note['duration']),
+                velocity=float(note['confidence'])
+            ))
+
+        # Sort by start time
+        note_objects.sort(key=lambda x: x.start)
+
+        return note_objects
+
+    def _extract_notes_from_probabilities(
+        self,
+        probabilities: np.ndarray
+    ) -> List[Dict]:
+        """Extract raw notes from probability matrix."""
         num_frames, num_notes = probabilities.shape
-        
-        # Apply threshold to get binary activations
-        activations = probabilities > self.threshold  # (num_frames, num_notes)
-        
+
+        # Apply threshold
+        activations = probabilities > self.threshold
+
         notes = []
-        
-        # For each MIDI note (0-87 mapping to MIDI 21-108)
+
+        # For each MIDI note
         for note_idx in range(num_notes):
-            # Get activation for this note across time
             note_activations = activations[:, note_idx]
-            
-            # Find segments where note is active
+            note_probs = probabilities[:, note_idx]
+
+            # Find continuous segments
             segments = self._find_segments(note_activations)
-            
-            # Convert each segment to a Note
+
+            # Convert to notes
             for start_frame, end_frame in segments:
-                # Convert frames to time
-                start_time = start_frame / self.frame_rate
-                end_time = end_frame / self.frame_rate
+                start_time = start_frame / self.frame_rate * 4  # Account for 4x downsampling
+                end_time = end_frame / self.frame_rate * 4
                 duration = end_time - start_time
-                
-                # Filter out very short notes (likely noise)
-                if duration < self.min_note_duration:
-                    continue
-                
-                # Convert note index to MIDI number
+
+                # Calculate confidence
+                confidence = float(np.mean(note_probs[start_frame:end_frame]))
+
                 midi_note = note_idx + self.min_midi
-                
-                # Calculate average velocity from probabilities
-                segment_probs = probabilities[start_frame:end_frame, note_idx]
-                velocity = float(np.mean(segment_probs))
-                
-                notes.append(Note(
-                    pitch=int(midi_note),
-                    duration=float(duration),
-                    velocity=float(velocity)
-                ))
-        
-        # Sort notes by start time (implicit - they're already ordered)
-        # In the current implementation, we don't store start_time in Note
-        # The notes are played sequentially by duration
-        
+
+                notes.append({
+                    'pitch': midi_note,
+                    'start': start_time,
+                    'duration': duration,
+                    'confidence': confidence
+                })
+
         return notes
-    
-    def _find_segments(self, activations: np.ndarray) -> List[Tuple[int, int]]:
-        """
-        Find continuous segments where a note is active.
-        
-        Args:
-            activations: Binary array of shape (num_frames,)
-            
-        Returns:
-            List of (start_frame, end_frame) tuples
-        """
+
+    def _find_segments(self, activations: np.ndarray) -> List[tuple]:
+        """Find continuous segments where note is active."""
         segments = []
-        
         in_segment = False
         start_frame = 0
-        
+
         for frame_idx in range(len(activations)):
             if activations[frame_idx] and not in_segment:
-                # Start of new segment
                 in_segment = True
                 start_frame = frame_idx
             elif not activations[frame_idx] and in_segment:
-                # End of segment
                 in_segment = False
                 segments.append((start_frame, frame_idx))
-        
-        # Handle case where segment continues to end
+
         if in_segment:
             segments.append((start_frame, len(activations)))
-        
+
         return segments
-    
-    def predict_with_timing(self, audio: np.ndarray) -> Dict[str, Any]:
+
+    def _merge_nearby_notes(self, notes: List[Dict]) -> List[Dict]:
+        """Merge notes of same pitch that are close in time."""
+        if not notes:
+            return notes
+
+        # Sort by pitch then start time
+        notes.sort(key=lambda x: (x['pitch'], x['start']))
+
+        merged = []
+        i = 0
+
+        while i < len(notes):
+            current = notes[i].copy()
+
+            # Look for mergeable notes
+            j = i + 1
+            while j < len(notes):
+                next_note = notes[j]
+
+                # Same pitch and close in time?
+                if (next_note['pitch'] == current['pitch'] and
+                    next_note['start'] - (current['start'] + current['duration']) < self.merge_tolerance):
+                    # Merge
+                    current['duration'] = (next_note['start'] + next_note['duration']) - current['start']
+                    current['confidence'] = max(current['confidence'], next_note['confidence'])
+                    j += 1
+                else:
+                    break
+
+            merged.append(current)
+            i = j if j > i + 1 else i + 1
+
+        return merged
+
+    def _resolve_overlapping_notes(self, notes: List[Dict]) -> List[Dict]:
         """
-        Predict melody with explicit timing information.
-        
-        This version returns notes with start times, useful for debugging
-        or alternative use cases.
-        
-        Args:
-            audio: Audio samples
-            
-        Returns:
-            Dictionary with notes and timing info
+        Resolve overlapping notes by keeping most confident.
+        This enforces monophonic constraint.
         """
-        mel_spec = self._preprocess_audio(audio)
-        probabilities = self._run_inference(mel_spec)
-        
-        num_frames, num_notes = probabilities.shape
-        activations = probabilities > self.threshold
-        
-        notes_with_timing = []
-        
-        for note_idx in range(num_notes):
-            note_activations = activations[:, note_idx]
-            segments = self._find_segments(note_activations)
-            
-            for start_frame, end_frame in segments:
-                start_time = start_frame / self.frame_rate
-                end_time = end_frame / self.frame_rate
-                duration = end_time - start_time
-                
-                if duration < self.min_note_duration:
-                    continue
-                
-                midi_note = note_idx + self.min_midi
-                segment_probs = probabilities[start_frame:end_frame, note_idx]
-                velocity = float(np.mean(segment_probs))
-                
-                notes_with_timing.append({
-                    'pitch': int(midi_note),
-                    'start_time': float(start_time),
-                    'duration': float(duration),
-                    'velocity': float(velocity),
-                    'note_name': self._midi_to_note_name(midi_note)
-                })
-        
+        if not notes:
+            return notes
+
+        notes.sort(key=lambda x: x['start'])
+
+        resolved = []
+        i = 0
+
+        while i < len(notes):
+            current = notes[i]
+
+            # Find all overlapping notes
+            overlapping = [current]
+            j = i + 1
+
+            while j < len(notes):
+                next_note = notes[j]
+
+                # Check if overlaps
+                if next_note['start'] < current['start'] + current['duration']:
+                    overlapping.append(next_note)
+                    j += 1
+                else:
+                    break
+
+            # If multiple overlapping, keep most confident
+            if len(overlapping) > 1:
+                best = max(overlapping, key=lambda x: x['confidence'])
+                resolved.append(best)
+                i = j
+            else:
+                resolved.append(current)
+                i += 1
+
+        return resolved
+
+    def _filter_notes(self, notes: List[Dict]) -> List[Dict]:
+        """Filter notes by duration and confidence."""
+        filtered = []
+
+        for note in notes:
+            # Filter by duration
+            if note['duration'] < self.min_note_duration:
+                continue
+
+            # Filter by confidence
+            if note['confidence'] < self.confidence_threshold:
+                continue
+
+            filtered.append(note)
+
+        return filtered
+
+    def _merge_onset_notes(self, notes: List[Dict]) -> List[Dict]:
+        """
+        Merge tiny 'onset' notes with the sustained note that follows.
+
+        This fixes the issue where the model detects:
+        - A tiny note (0.03s) at the attack
+        - Followed immediately by the sustained note
+
+        Example:
+        Before: [A3 @ 0.288s for 0.032s], [B3 @ 0.32s for 0.352s]
+        After:  [B3 @ 0.288s for 0.384s]
+        """
+        if not notes:
+            return notes
+
         # Sort by start time
-        notes_with_timing.sort(key=lambda x: x['start_time'])
-        
-        return {
-            'notes': notes_with_timing,
-            'total_duration': num_frames / self.frame_rate,
-            'num_notes': len(notes_with_timing)
-        }
-    
+        notes.sort(key=lambda x: x['start'])
+
+        merged = []
+        i = 0
+
+        while i < len(notes):
+            current = notes[i]
+
+            # Check if this is a tiny note (likely an onset detection)
+            if (i < len(notes) - 1 and
+                    current['duration'] < 0.08):  # Very short note
+
+                next_note = notes[i + 1]
+
+                # Calculate gap between notes
+                gap = next_note['start'] - (current['start'] + current['duration'])
+
+                # Calculate pitch difference in semitones
+                pitch_diff = abs(next_note['pitch'] - current['pitch'])
+
+                # Merge if:
+                # 1. Gap is very small (< 0.1s)
+                # 2. Pitches are close (within 3 semitones - could be vibrato/glide)
+                if gap < 0.1 and pitch_diff <= 3:
+                    # Merge into one note starting from onset
+                    merged_note = {
+                        'pitch': next_note['pitch'],  # Use sustained pitch
+                        'start': current['start'],  # Start from onset
+                        'duration': (next_note['start'] + next_note['duration']) - current['start'],
+                        'confidence': max(current['confidence'], next_note['confidence'])
+                    }
+                    merged.append(merged_note)
+                    i += 2  # Skip both notes
+                    continue
+
+            # If not merged, keep current note
+            merged.append(current)
+            i += 1
+
+        return merged
+
     def _midi_to_note_name(self, midi: int) -> str:
-        """Convert MIDI number to note name (e.g., 60 -> 'C4')."""
+        """Convert MIDI to note name."""
         notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
         octave = (midi // 12) - 1
         note = notes[midi % 12]
         return f"{note}{octave}"
 
 
-def test_predictor():
-    """Test predictor with dummy data."""
-    import tempfile
-    import soundfile as sf
-    
-    print("Testing MelodyPredictor...")
-    
-    # Create dummy audio (sine wave)
-    sr = 16000
-    duration = 2.0
-    freq = 440  # A4
-    t = np.linspace(0, duration, int(sr * duration))
-    audio = np.sin(2 * np.pi * freq * t)
-    
-    with tempfile.TemporaryDirectory() as tmpdir:
-        # Save audio
-        audio_path = Path(tmpdir) / 'test.wav'
-        sf.write(audio_path, audio, sr)
-        
-        # Create dummy checkpoint (for testing structure)
-        checkpoint_path = Path(tmpdir) / 'model.pth'
-        model = Hum2MelodyCRNN()
-        torch.save({
-            'model_state_dict': model.state_dict(),
-            'epoch': 0,
-            'val_loss': 0.5
-        }, checkpoint_path)
-        
-        # Test predictor
-        predictor = MelodyPredictor(str(checkpoint_path), device='cpu')
-        
-        # Test from file
-        track = predictor.predict_from_file(str(audio_path))
-        print(f"\nPredicted {len(track.notes) if track.notes else 0} notes")
-        
-        # Test from bytes
-        audio_bytes = audio_path.read_bytes()
-        track2 = predictor.predict_from_bytes(audio_bytes)
-        print(f"From bytes: {len(track2.notes) if track2.notes else 0} notes")
-        
-        # Test with timing
-        timing_result = predictor.predict_with_timing(audio)
-        print(f"\nWith timing info:")
-        print(f"  Total duration: {timing_result['total_duration']:.2f}s")
-        print(f"  Num notes: {timing_result['num_notes']}")
-        
-        if timing_result['notes']:
-            print(f"  First note: {timing_result['notes'][0]}")
-        
-        print("\n✓ Predictor test passed!")
-
-
 if __name__ == '__main__':
-    test_predictor()
+    # Test predictor
+    print("Testing ImprovedMelodyPredictor...")
+
+    checkpoint = "checkpoints_v2/best_model.pth"
+    if Path(checkpoint).exists():
+        predictor = ImprovedMelodyPredictor(checkpoint)
+        print("✅ Predictor loaded successfully!")
+    else:
+        print(f"⚠️ Checkpoint not found: {checkpoint}")
+        print("   Train the model first!")
