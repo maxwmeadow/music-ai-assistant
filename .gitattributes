@@ -1,3 +1,5 @@
+backend/checkpoints/*.pth filter=lfs diff=lfs merge=lfs -text
+backend/checkpoints/*.pt filter=lfs diff=lfs merge=lfs -text
 hybrid_hum2melody_package/checkpoints/combined_hum2melody_full.pth filter=lfs diff=lfs merge=lfs -text
 hum2melody_package/checkpoints/combined_hum2melody_full.pth filter=lfs diff=lfs merge=lfs -text
 backend/hum2melody/checkpoints/combined_hum2melody_full.pth filter=lfs diff=lfs merge=lfs -text
