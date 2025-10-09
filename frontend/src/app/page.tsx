@@ -9,6 +9,7 @@ import { parseTracksFromDSL, ParsedTrack } from "@/lib/dslParser";
 import { Mic, Music, Drum, Play, Square, Sparkles } from "lucide-react";
 import { Timeline } from "@/components/Timeline/Timeline";
 import { usePlaybackTime } from "@/hooks/usePlaybackTime";
+import { PianoRoll } from "@/components/PianoRoll/PianoRoll";
 
 export default function Home() {
   const [code, setCode] = useState("// Your generated music code will appear here...");
@@ -21,6 +22,7 @@ export default function Home() {
   const [trackVolumes, setTrackVolumes] = useState<Record<string, number>>({});
   const [isPlaying, setIsPlaying] = useState(false);
   const currentTime = usePlaybackTime(isPlaying);
+  const [selectedTrackForPianoRoll, setSelectedTrackForPianoRoll] = useState<string | null>(null);
 
   const showToast = (message: string) => {
     setToast(message);
@@ -106,32 +108,45 @@ export default function Home() {
         });
       }, 100);
 
-      // Calculate total duration from DSL
       const tempoMatch = code.match(/tempo\((\d+)\)/);
       const tempo = tempoMatch ? parseInt(tempoMatch[1]) : 120;
 
       let maxDuration = 0;
-      tracks.forEach(track => {
-        const trackMatch = code.match(new RegExp(`track\\("${track.id}"\\)\\s*{([^}]+)}`, 's'));
-        if (trackMatch) {
-          const noteMatches = trackMatch[1].matchAll(/(?:note|chord)\([^)]+,\s*([\d.]+),/g);
-          let trackDuration = 0;
-          for (const match of noteMatches) {
-            trackDuration += parseFloat(match[1]);
-          }
-          maxDuration = Math.max(maxDuration, trackDuration);
-        }
-      });
+      const trackRegex = /track\("([^"]+)"\)\s*\{([^}]+)\}/g;
+      let trackMatch;
 
-      // Auto-stop when done (add 1 second buffer)
+      while ((trackMatch = trackRegex.exec(code)) !== null) {
+        const trackContent = trackMatch[2];
+        const noteRegex = /note\("([^"]+)",\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g;
+        let noteMatch;
+
+        while ((noteMatch = noteRegex.exec(trackContent)) !== null) {
+          const start = parseFloat(noteMatch[2]);
+          const duration = parseFloat(noteMatch[3]);
+          const endTime = start + duration;
+          maxDuration = Math.max(maxDuration, endTime);
+        }
+
+        const chordRegex = /chord\(\[[^\]]+\],\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g;
+        let chordMatch;
+
+        while ((chordMatch = chordRegex.exec(trackContent)) !== null) {
+          const start = parseFloat(chordMatch[1]);
+          const duration = parseFloat(chordMatch[2]);
+          const endTime = start + duration;
+          maxDuration = Math.max(maxDuration, endTime);
+        }
+      }
+
+      console.log(`[Playback] Calculated duration: ${maxDuration.toFixed(2)}s`);
+
       const stopTimeout = setTimeout(() => {
         stopAudio();
-      }, (maxDuration + 1) * 1000);
+      }, (maxDuration + 1.5) * 1000);
 
-      // Store timeout to clear if manually stopped
       (window as any).__autoStopTimeout = stopTimeout;
 
-      showToast("Playing...");
+      showToast(`Playing (${maxDuration.toFixed(1)}s)...`);
     } catch (error) {
       console.error(error);
       showToast("Playback error");
@@ -142,7 +157,6 @@ export default function Home() {
   };
 
   const stopAudio = () => {
-    // Clear auto-stop timeout
     if ((window as any).__autoStopTimeout) {
       clearTimeout((window as any).__autoStopTimeout);
     }
@@ -151,6 +165,37 @@ export default function Home() {
       (window as any).__musicControls.stop();
       setIsPlaying(false);
       showToast("Stopped");
+    }
+  };
+
+  // NEW: Handle melody generation from recorder
+  const handleMelodyGenerated = async (ir: any) => {
+    showToast("Converting to DSL...");
+
+    try {
+      // Send IR to /run endpoint to get DSL
+      const response = await api("/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ir }),
+      });
+
+      const data = await response.json();
+
+      if (data.dsl) {
+        setCode(data.dsl);
+        setExecutableCode(data.meta?.executable_code || "");
+
+        const parsedTracks = parseTracksFromDSL(data.dsl);
+        setTracks(parsedTracks);
+
+        showToast("✅ Melody loaded! Click compile & play");
+      } else {
+        showToast("❌ Failed to convert to DSL");
+      }
+    } catch (error) {
+      console.error("Failed to convert IR to DSL:", error);
+      showToast("❌ Conversion failed");
     }
   };
 
@@ -183,53 +228,13 @@ export default function Home() {
 
           {/* LEFT: Input Panel */}
           <div className="space-y-6">
-            {/* AI Actions */}
+            {/* Recording - NOW WITH CALLBACK */}
             <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-2xl">
-              <h2 className="text-xl font-bold text-white mb-4">Create with AI</h2>
-
-              <div className="space-y-3">
-                <button className="w-full group relative overflow-hidden bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white rounded-xl px-6 py-4 transition-all duration-300 transform hover:scale-[1.02]">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
-                      <Mic className="w-6 h-6" />
-                    </div>
-                    <div className="text-left flex-1">
-                      <p className="font-semibold text-lg">Hum a Melody</p>
-                      <p className="text-sm text-purple-100">Transform your humming into musical notes</p>
-                    </div>
-                  </div>
-                </button>
-
-                <button className="w-full group relative overflow-hidden bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white rounded-xl px-6 py-4 transition-all duration-300 transform hover:scale-[1.02]">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
-                      <Drum className="w-6 h-6" />
-                    </div>
-                    <div className="text-left flex-1">
-                      <p className="font-semibold text-lg">Beatbox Drums</p>
-                      <p className="text-sm text-blue-100">Create drum patterns from beatboxing</p>
-                    </div>
-                  </div>
-                </button>
-
-                <button className="w-full group relative overflow-hidden bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white rounded-xl px-6 py-4 transition-all duration-300 transform hover:scale-[1.02]">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
-                      <Music className="w-6 h-6" />
-                    </div>
-                    <div className="text-left flex-1">
-                      <p className="font-semibold text-lg">Add Arrangement</p>
-                      <p className="text-sm text-green-100">Generate bass, chords, and more</p>
-                    </div>
-                  </div>
-                </button>
-              </div>
-            </div>
-
-            {/* Recording */}
-            <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-2xl">
-              <h2 className="text-xl font-bold text-white mb-4">Record Audio</h2>
-              <RecorderControls />
+              <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                <Mic className="w-5 h-5" />
+                Record & Generate Melody
+              </h2>
+              <RecorderControls onMelodyGenerated={handleMelodyGenerated} />
             </div>
 
             {/* Quick Test */}
@@ -297,6 +302,42 @@ export default function Home() {
           <div className="mt-6 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-2xl">
             <Timeline
               tracks={tracks}
+              dslCode={code}
+              onCodeChange={setCode}
+              isPlaying={isPlaying}
+              currentTime={currentTime}
+            />
+          </div>
+        )}
+
+        {/* Track Selector for Piano Roll */}
+        {tracks.length > 0 && (
+          <div className="mt-6 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-2xl">
+            <h3 className="text-white font-semibold mb-3">Piano Roll View</h3>
+            <div className="flex gap-2">
+              {tracks.map(track => (
+                <button
+                  key={track.id}
+                  onClick={() => setSelectedTrackForPianoRoll(
+                    selectedTrackForPianoRoll === track.id ? null : track.id
+                  )}
+                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                    selectedTrackForPianoRoll === track.id
+                      ? 'bg-purple-600 text-white'
+                      : 'bg-white/10 text-gray-300 hover:bg-white/20'
+                  }`}
+                >
+                  {track.id}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {selectedTrackForPianoRoll && (
+          <div className="mt-6 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-2xl">
+            <PianoRoll
+              track={tracks.find(t => t.id === selectedTrackForPianoRoll)!}
               dslCode={code}
               onCodeChange={setCode}
               isPlaying={isPlaying}

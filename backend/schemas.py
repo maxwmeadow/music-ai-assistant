@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 class Note(BaseModel):
     pitch: int              # MIDI number
+    start: float            # absolute start time in seconds
     duration: float         # seconds or beats
     velocity: float         # 0.0–1.0
 

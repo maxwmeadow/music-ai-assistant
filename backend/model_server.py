@@ -1,241 +1,6 @@
-'''
-old code for fallback
----------------------------
-
-
-
-
-
-import numpy as np
-from typing import Dict, List, Any
-from .schemas import IR, Track, Note, SampleEvent
-import random
-
-class ModelServer:
-    """
-    Serves AI model predictions for music generation.
-    Currently returns mock predictions - will integrate real PyTorch models later.
-    EMPHASIS ON MOCK FOR RIHGT NOW
-    """
-
-    def __init__(self):
-        """Initialize model server (load models here in future)"""
-        # Placeholder for future model loading
-        self.hum2melody_model = None
-        self.beatbox2drums_model = None
-        self.arranger_model = None
-
-        # MIDI note mappings for mock data
-        self.c_major_scale = [60, 62, 64, 65, 67, 69, 71, 72]  # C4 to C5
-        self.a_minor_scale = [57, 59, 60, 62, 64, 65, 67, 69]  # A3 to A5
-
-    async def predict_melody(self, audio_features: Dict[str, Any]) -> Track:
-        """
-        Predict melody from humming audio features.
-
-        Args:
-            audio_features: Dictionary of processed audio features from AudioProcessor
-
-        Returns:
-            Track object containing melody notes in IR format
-        """
-        # Extract relevant features
-        onset_times = audio_features.get("onset_times", [])
-        duration = audio_features.get("duration", 4.0)
-
-        # Generate mock melody notes based on onset times
-        notes = []
-
-        if not onset_times:
-            # If no onsets detected, create a simple pattern
-            onset_times = [i * 0.5 for i in range(8)]
-
-        for i, start_time in enumerate(onset_times):
-            # Pick notes from scale
-            pitch = self.a_minor_scale[i % len(self.a_minor_scale)]
-
-            # Calculate duration until next onset (or use default)
-            if i < len(onset_times) - 1:
-                note_duration = onset_times[i + 1] - start_time
-            else:
-                note_duration = min(1.0, duration - start_time)
-
-            # Add some velocity variation
-            velocity = random.uniform(0.6, 0.9)
-
-            notes.append(Note(
-                pitch=pitch,
-                duration=note_duration,
-                velocity=velocity
-            ))
-
-        return Track(
-            id="melody",
-            instrument="lead_synth",
-            notes=notes,
-            samples=None
-        )
-
-    async def predict_drums(self, audio_features: Dict[str, Any]) -> Track:
-        """
-        Predict drum pattern from beatbox audio features.
-
-        Args:
-            audio_features: Dictionary of processed audio features from AudioProcessor
-
-        Returns:
-            Track object containing drum samples in IR format
-        """
-        onset_times = audio_features.get("onset_times", [])
-        tempo = audio_features.get("tempo", 120)
-        spectral_centroid = audio_features.get("spectral_centroid", [])
-
-        samples = []
-
-        if not onset_times:
-            # Generate default 4-on-the-floor pattern
-            beat_interval = 60.0 / tempo  # seconds per beat
-            onset_times = [i * beat_interval for i in range(16)]
-
-        # Classify drum sounds based on spectral features (mock classification)
-        for i, start_time in enumerate(onset_times):
-            # Simple heuristic: low spectral centroid = kick, high = snare/hihat
-            # In reality, you'd use ML model here
-
-            if i % 4 == 0:
-                # Kick on downbeats
-                sample_type = "kick"
-            elif i % 2 == 1:
-                # Snare on backbeats
-                sample_type = "snare"
-            else:
-                # Hi-hat on other beats
-                sample_type = "hihat"
-
-            samples.append(SampleEvent(
-                sample=sample_type,
-                start=float(start_time)
-            ))
-
-        return Track(
-            id="drums",
-            instrument=None,
-            notes=None,
-            samples=samples
-        )
-
-    async def arrange_track(self, existing_ir: IR, style: str = "pop") -> IR:
-        """
-        Take existing melody and add accompanying tracks (bass, chords, etc).
-
-        Args:
-            existing_ir: Existing IR with at least one track
-            style: Musical style for arrangement ("pop", "jazz", "electronic")
-
-        Returns:
-            Enhanced IR with additional tracks
-        """
-        # Extract melody track
-        melody_track = None
-        for track in existing_ir.tracks:
-            if track.notes:
-                melody_track = track
-                break
-
-        if not melody_track or not melody_track.notes:
-            # No melody to arrange around, return original
-            return existing_ir
-
-        # Generate bass line (root notes, octave below melody)
-        bass_notes = []
-        for i, note in enumerate(melody_track.notes[::2]):  # Every other note
-            bass_pitch = note.pitch - 12  # One octave down
-            bass_duration = note.duration * 2
-            bass_notes.append(Note(
-                pitch=bass_pitch,
-                duration=bass_duration,
-                velocity=0.8
-            ))
-
-        bass_track = Track(
-            id="bass",
-            instrument="bass_synth",
-            notes=bass_notes,
-            samples=None
-        )
-
-        # Generate chord progression (simplified)
-        chord_notes = []
-        chord_progression = [60, 65, 67, 62]  # I-IV-V-ii in C
-
-        for i, chord_root in enumerate(chord_progression):
-            start_time = i * 2.0  # 2 seconds per chord
-            duration = 2.0
-
-            # Add chord tones (root, third, fifth)
-            for offset in [0, 4, 7]:
-                chord_notes.append(Note(
-                    pitch=chord_root + offset,
-                    duration=duration,
-                    velocity=0.5
-                ))
-
-        chord_track = Track(
-            id="chords",
-            instrument="pad_synth",
-            notes=chord_notes,
-            samples=None
-        )
-
-        # Add drums if not present
-        has_drums = any(track.samples for track in existing_ir.tracks)
-
-        new_tracks = existing_ir.tracks.copy()
-        new_tracks.append(bass_track)
-        new_tracks.append(chord_track)
-
-        if not has_drums:
-            # Add basic drum pattern
-            drum_samples = []
-            for i in range(16):
-                if i % 4 == 0:
-                    drum_samples.append(SampleEvent(sample="kick", start=float(i * 0.5)))
-                if i % 4 == 2:
-                    drum_samples.append(SampleEvent(sample="snare", start=float(i * 0.5)))
-
-            drum_track = Track(
-                id="drums",
-                instrument=None,
-                notes=None,
-                samples=drum_samples
-            )
-            new_tracks.append(drum_track)
-
-        return IR(
-            metadata=existing_ir.metadata,
-            tracks=new_tracks
-        )
-
-    def _predict_with_model(self, model, features: np.ndarray): # -> np.ndarray:
-        """
-        Helper method for future PyTorch model inference.
-
-        Args:
-            model: PyTorch model
-            features: Input features as numpy array
-
-        Returns:
-            Model predictions as numpy array
-        """
-        # Placeholder for actual model inference
-        # import torch
-        # with torch.no_grad():
-        #     tensor_features = torch.from_numpy(features).float()
-        #     predictions = model(tensor_features)
-        #     return predictions.numpy()
-        pass
-
-'''
+"""
+Model Server with proper integration of trained Hum2Melody model
+"""
 
 import numpy as np
 from typing import Dict, Any
@@ -246,7 +11,7 @@ from .schemas import IR, Track, Note, SampleEvent
 
 # Import your trained model wrapper
 try:
-    from inference.predictor import MelodyPredictor
+    from inference.predictor import ImprovedMelodyPredictor as MelodyPredictor
 except ImportError:
     MelodyPredictor = None
 
@@ -259,23 +24,32 @@ class ModelServer:
 
     def __init__(self):
         """Initialize model server and optionally load trained model"""
-        checkpoint_path = Path("checkpoints/best_model.pth")
+        checkpoint_path = Path("backend/checkpoints/best_model.pth")
 
         if MelodyPredictor is not None and checkpoint_path.exists():
             try:
-                self.predictor = MelodyPredictor(str(checkpoint_path))
+                self.predictor = MelodyPredictor(
+                    str(checkpoint_path),
+                    threshold=0.5,  # Adjust this based on your validation results
+                    min_note_duration=0.1  # Filter very short notes
+                )
                 print(f"✅ Loaded trained model from {checkpoint_path}")
             except Exception as e:
                 print(f"⚠️ Failed to load model: {e}")
+                import traceback
+                traceback.print_exc()
                 self.predictor = None
         else:
             self.predictor = None
-            print("⚠️ No trained model found, using mock predictions")
+            if not checkpoint_path.exists():
+                print(f"⚠️ No trained model found at {checkpoint_path}")
+            if MelodyPredictor is None:
+                print("⚠️ MelodyPredictor not available")
+            print("Using mock predictions")
 
         # Define scales for fallback
         self.c_major_scale = [60, 62, 64, 65, 67, 69, 71, 72]  # C4–C5
         self.a_minor_scale = [57, 59, 60, 62, 64, 65, 67, 69]  # A3–A5
-
 
     async def predict_melody(self, audio_features: Dict[str, Any]) -> Track:
         """
@@ -283,31 +57,52 @@ class ModelServer:
         Uses trained model if available; otherwise falls back to mock predictions.
         """
         # Handle invalid or missing inputs
-        if not audio_features or "duration" not in audio_features:
-            print("⚠️ Missing or invalid audio features, using mock.")
+        if not audio_features:
+            print("⚠️ Missing audio features, using mock.")
             return self._mock_melody(audio_features)
-
-        # Limit overly long audio
-        duration = audio_features.get("duration", 0)
-        if duration > 16.0:
-            print(f"⚠️ Audio too long ({duration:.2f}s), trimming to 16s.")
-            audio_features["duration"] = 16.0
 
         # Try real model if available
         if self.predictor is not None:
             try:
-                track = self.predictor.predict(audio_features)
-                if track and getattr(track, "notes", None):
-                    print("✅ Generated melody from trained model.")
-                    return track
-                else:
-                    print("⚠️ Model returned empty output, using mock.")
-                    return self._mock_melody(audio_features)
+                # Priority 1: Raw audio bytes (best for API uploads)
+                audio_bytes = audio_features.get("audio_bytes")
+                if audio_bytes:
+                    print("[Model] Using raw audio bytes")
+                    track = self.predictor.predict_from_bytes(audio_bytes)
+                    if track and getattr(track, "notes", None):
+                        print(f"✅ Generated {len(track.notes)} notes from trained model")
+                        return track
+
+                # Priority 2: Audio array (if already loaded)
+                audio = audio_features.get("audio")
+                if audio is not None and isinstance(audio, np.ndarray):
+                    print("[Model] Using audio array")
+                    track = self.predictor.predict_from_audio(audio)
+                    if track and getattr(track, "notes", None):
+                        print(f"✅ Generated {len(track.notes)} notes from trained model")
+                        return track
+
+                # Priority 3: File path
+                audio_path = audio_features.get("audio_path")
+                if audio_path:
+                    print("[Model] Using audio file path")
+                    track = self.predictor.predict_from_file(audio_path)
+                    if track and getattr(track, "notes", None):
+                        print(f"✅ Generated {len(track.notes)} notes from trained model")
+                        return track
+
+                # If we get here, no valid audio format was provided
+                print("⚠️ No valid audio format (need audio_bytes, audio array, or audio_path)")
+                return self._mock_melody(audio_features)
+
             except Exception as e:
-                print(f"⚠️ Model inference failed: {e}, using mock.")
+                print(f"⚠️ Model inference failed: {e}")
+                import traceback
+                traceback.print_exc()
                 return self._mock_melody(audio_features)
         else:
             # Fallback to mock predictions
+            print("⚠️ No trained model loaded, using mock.")
             return self._mock_melody(audio_features)
 
 
@@ -340,15 +135,16 @@ class ModelServer:
         Take existing melody and add accompanying tracks (bass, chords, etc).
         """
         melody_track = next((t for t in existing_ir.tracks if t.notes), None)
-        if not melody_track:
+        if not melody_track or not melody_track.notes:
             return existing_ir
 
-        # Generate bass
+        # Generate bass (use start times from melody)
         bass_notes = []
-        for i, note in enumerate(melody_track.notes[::2]):
+        for i, note in enumerate(melody_track.notes[::2]):  # Every other note
             bass_notes.append(
                 Note(
                     pitch=note.pitch - 12,
+                    start=note.start,  # Use same start time
                     duration=note.duration * 2,
                     velocity=0.8,
                 )
@@ -358,7 +154,7 @@ class ModelServer:
             id="bass", instrument="bass_synth", notes=bass_notes, samples=None
         )
 
-        # Chords
+        # Chords (every 2 seconds)
         chord_notes = []
         chord_progression = [60, 65, 67, 62]
         for i, chord_root in enumerate(chord_progression):
@@ -367,6 +163,7 @@ class ModelServer:
                 chord_notes.append(
                     Note(
                         pitch=chord_root + offset,
+                        start=start_time,
                         duration=2.0,
                         velocity=0.5,
                     )
@@ -396,14 +193,15 @@ class ModelServer:
             else:
                 note_duration = min(1.0, duration - start_time)
             velocity = random.uniform(0.6, 0.9)
-            notes.append(Note(pitch=pitch, duration=note_duration, velocity=velocity))
+            
+            # IMPORTANT: Include start time!
+            notes.append(Note(
+                pitch=pitch,
+                start=start_time,  # Now included
+                duration=note_duration,
+                velocity=velocity
+            ))
 
         return Track(
-            id="melody", instrument="lead_synth", notes=notes, samples=None
+            id="melody", instrument="guitar/rjs_guitar_new_strings", notes=notes, samples=None
         )
-
-    def _predict_with_model(self, model, features: np.ndarray):
-        """
-        Reserved for future direct torch inference integration.
-        """
-        pass

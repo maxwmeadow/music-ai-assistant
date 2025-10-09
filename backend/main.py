@@ -174,39 +174,64 @@ def run(body: RunBody):
 
 @app.post("/hum2melody")
 async def hum_to_melody(
-    audio: UploadFile = File(...),
-    save_training_data: bool = Form(True)
+        audio: UploadFile = File(...),
+        save_training_data: bool = Form(True),
+        instrument: str = Form("piano/grand_piano_k")
 ):
-    """
-    Process humming audio and return melody in IR format.
-    
-    Args:
-        audio: Audio file (WAV or MP3)
-        save_training_data: Whether to save for future model training
-        
-    Returns:
-        JSON with melody IR and metadata
-    """
     print("[HUM2MELODY] Endpoint called")
     print(f"File: {audio.filename}, Type: {audio.content_type}")
-    
+    print(f"Instrument: {instrument}")
+
     try:
-        # Read audio bytes
+        # Read audio bytes FIRST (before any processing)
         audio_bytes = await audio.read()
-        
-        # Save audio file
-        file_path, file_metadata = await save_audio_file(audio, "hum2melody")
-        print(f"Saved audio to: {file_path}")
-        
-        # Process audio
-        print("Processing audio...")
+
+        # Save the bytes directly
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        original_filename = audio.filename or "audio.wav"
+        file_extension = Path(original_filename).suffix or ".wav"
+        filename = f"hum2melody_{timestamp}{file_extension}"
+        file_path = AUDIO_STORAGE / filename  # Path object
+
+        # Write bytes directly to file
+        with file_path.open("wb") as f:
+            f.write(audio_bytes)
+
+        file_size = len(audio_bytes)
+        file_metadata = {
+            "original_filename": original_filename,
+            "content_type": audio.content_type,
+            "file_size_bytes": file_size,
+            "upload_timestamp": timestamp
+        }
+
+        print(f"Saved audio to: {file_path} ({file_size} bytes)")
+
+        # Process audio (for metadata and fallback)
+        print("Processing audio for features...")
         audio_features = audio_processor.preprocess_for_hum2melody(audio_bytes)
+
+        # ADD the raw bytes to features dict (needed by model)
+        audio_features["audio_bytes"] = audio_bytes
+        audio_features["audio_path"] = str(file_path)  # Convert to string here
+        audio_features["instrument"] = instrument
+
         print(f"Extracted features: duration={audio_features['duration']:.2f}s")
-        
+
         # Get model prediction
         print("Getting model prediction...")
         melody_track = await model_server.predict_melody(audio_features)
-        
+
+        # Validate track has notes
+        if not melody_track.notes:
+            print("⚠️ No notes predicted, using fallback")
+            # Force fallback
+            audio_features.pop("audio_bytes", None)
+            audio_features.pop("audio_path", None)
+            melody_track = await model_server.predict_melody(audio_features)
+
+        print(f"✅ Generated {len(melody_track.notes)} notes")
+
         # Create IR
         ir = IR(
             metadata={
@@ -217,13 +242,12 @@ async def hum_to_melody(
             },
             tracks=[melody_track]
         )
-        
+
         # Save to database if requested
         audio_id = None
         if save_training_data:
-            original_filename = audio.filename or "audio.wav"
             audio_id = db.save_audio_sample(
-                file_path=file_path,
+                file_path=str(file_path),  # ✅ Convert Path to string here
                 model_type="hum2melody",
                 file_format=Path(original_filename).suffix.lstrip('.') or "wav",
                 sample_rate=audio_features['sample_rate'],
@@ -231,14 +255,14 @@ async def hum_to_melody(
                 metadata=file_metadata
             )
             print(f"Saved to database with ID: {audio_id}")
-            
+
             # Save prediction
             db.save_prediction(
                 audio_sample_id=audio_id,
                 model_type="hum2melody",
                 prediction=melody_track.model_dump()
             )
-        
+
         return JSONResponse(content={
             "status": "success",
             "ir": ir.model_dump(),
@@ -246,10 +270,12 @@ async def hum_to_melody(
             "metadata": {
                 "duration": audio_features['duration'],
                 "num_notes": len(melody_track.notes) if melody_track.notes else 0,
-                "file_path": file_path
+                "file_path": str(file_path),  # ✅ Convert to string here too
+                "model_used": "trained" if model_server.predictor else "mock",
+                "instrument": instrument
             }
         })
-        
+
     except Exception as e:
         print(f"Error in hum2melody: {e}")
         import traceback

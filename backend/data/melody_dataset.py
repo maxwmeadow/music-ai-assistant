@@ -22,6 +22,7 @@ from torch.utils.data import Dataset
 from pathlib import Path
 from typing import List, Tuple, Dict, Optional
 import warnings
+import random
 
 class MelodyDataset(Dataset):
     """
@@ -49,7 +50,8 @@ class MelodyDataset(Dataset):
         hop_length: int = 512,
         min_midi: int = 21,
         max_midi: int = 108,
-        validate: bool = True
+        validate: bool = True,
+        augment: bool = True
     ):
         self.labels_path = Path(labels_path)
         self.audio_root = Path(audio_root) if audio_root else None
@@ -60,6 +62,7 @@ class MelodyDataset(Dataset):
         self.min_midi = min_midi
         self.max_midi = max_midi
         self.num_notes = max_midi - min_midi + 1  # 88 notes
+        self.augment = augment
         
         # Frame rate calculation
         self.frame_rate = sample_rate / hop_length  # 16000 / 512 = 31.25 fps
@@ -108,12 +111,12 @@ class MelodyDataset(Dataset):
             raise ValueError(f"Labels path not found: {self.labels_path}")
         
         return samples
-    
+
     def _validate_labels(self):
         """Validate label data and filter out invalid samples."""
         valid_samples = []
         invalid_count = 0
-        
+
         for idx, sample in enumerate(self.samples):
             try:
                 # Check required fields
@@ -121,36 +124,48 @@ class MelodyDataset(Dataset):
                 assert 'notes' in sample, "Missing 'notes'"
                 assert 'start_times' in sample, "Missing 'start_times'"
                 assert 'durations' in sample, "Missing 'durations'"
-                
+
                 # Check data integrity
                 notes = sample['notes']
                 start_times = sample['start_times']
                 durations = sample['durations']
-                
+
                 assert len(notes) == len(start_times) == len(durations), \
                     "Length mismatch between notes, start_times, and durations"
-                
+
+                # NEW: Check minimum note density to avoid sparse samples
+                total_active_time = sum(durations)
+                num_notes = len(notes)
+
+                # Reject samples with less than 1 second of active notes
+                assert total_active_time >= 0.5, \
+                    f"Insufficient note content: {total_active_time:.2f}s (need ≥1.0s)"
+
+                # Reject samples with fewer than 3 notes
+                assert num_notes >= 2, \
+                    f"Too few notes: {num_notes} (need ≥3)"
+
                 # Check MIDI range
                 notes_array = np.array(notes)
                 assert np.all((notes_array >= self.min_midi) & (notes_array <= self.max_midi)), \
                     f"Notes outside MIDI range {self.min_midi}-{self.max_midi}"
-                
+
                 # Check timing
                 assert all(t >= 0 for t in start_times), "Negative start times"
                 assert all(d > 0 for d in durations), "Non-positive durations"
-                
+
                 # Check audio file exists
                 audio_path = self._get_audio_path(sample['audio_path'])
                 assert audio_path.exists(), f"Audio file not found: {audio_path}"
-                
+
                 valid_samples.append(sample)
-                
+
             except AssertionError as e:
                 invalid_count += 1
                 warnings.warn(f"Invalid sample {idx}: {e}")
-        
+
         self.samples = valid_samples
-        
+
         if invalid_count > 0:
             print(f"[MelodyDataset] Filtered out {invalid_count} invalid samples")
     
@@ -204,6 +219,23 @@ class MelodyDataset(Dataset):
         target_tensor = torch.FloatTensor(target)
         
         return mel_tensor, target_tensor
+
+    def _augment_audio(self, audio: np.ndarray) -> np.ndarray:
+        """Apply random augmentations to audio."""
+        if not self.augment or random.random() > 0.5:  # 50% chance
+            return audio
+
+        # Add slight noise (simulates recording noise)
+        noise_level = random.uniform(0.005, 0.015)
+        noise = np.random.randn(len(audio)) * noise_level
+        audio = audio + noise
+
+        # Volume scaling (simulates different recording levels)
+        scale = random.uniform(0.7, 1.3)
+        audio = audio * scale
+
+        # Clip to valid range
+        return np.clip(audio, -1, 1)
     
     def _load_mel_spectrogram(self, audio_path: Path) -> np.ndarray:
         """
@@ -218,6 +250,8 @@ class MelodyDataset(Dataset):
             sr=self.sample_rate, 
             mono=True
         )
+
+        audio = self._augment_audio(audio)
         
         # Extract mel spectrogram
         mel_spec = librosa.feature.melspectrogram(
