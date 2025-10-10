@@ -1,11 +1,19 @@
-﻿Write-Host "ðŸ›‘ Stopping all services..." -ForegroundColor Red
-try { Stop-Process -Id 22824 -Force -ErrorAction SilentlyContinue } catch {}
-try { Stop-Process -Id 22924 -Force -ErrorAction SilentlyContinue } catch {}
-try { Stop-Process -Id 22852 -Force -ErrorAction SilentlyContinue } catch {}
+﻿Write-Host 'Stopping all services...' -ForegroundColor Red
 
-# Also kill any remaining processes on these ports
-Get-NetTCPConnection -LocalPort 3000,8000,5001 -ErrorAction SilentlyContinue | ForEach-Object {
-    try { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } catch {}
+# Kill by PID
+@(10200, 14512, 23280) | ForEach-Object {
+    try {
+        Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue
+        Write-Host '  Stopped process' $_ -ForegroundColor Gray
+    } catch {}
 }
 
-Write-Host "All services stopped." -ForegroundColor Green
+# Kill any remaining processes on these ports
+Write-Host '  Checking ports...' -ForegroundColor Gray
+Get-NetTCPConnection -LocalPort 3000,8000,5001 -ErrorAction SilentlyContinue | ForEach-Object {
+    try {
+        Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue
+    } catch {}
+}
+
+Write-Host 'All services stopped.' -ForegroundColor Green
