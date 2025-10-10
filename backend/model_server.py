@@ -1,19 +1,55 @@
 """
-Model Server with proper integration of trained Hum2Melody model
+Model Server with EXTREME DEBUGGING for proper integration of trained Hum2Melody model
 """
 
 import numpy as np
 from typing import Dict, Any
 from pathlib import Path
 import random
+import sys
+import traceback
 
-from .schemas import IR, Track, Note, SampleEvent
+print("[MODEL_SERVER.PY] ========================================")
+print("[MODEL_SERVER.PY] Starting model_server.py import")
+print(f"[MODEL_SERVER.PY] Python version: {sys.version}")
+print(f"[MODEL_SERVER.PY] Current working directory: {Path.cwd()}")
+print(f"[MODEL_SERVER.PY] sys.path (first 3): {sys.path[:3]}")
+print("[MODEL_SERVER.PY] ========================================")
+
+# Import schemas
+print("[MODEL_SERVER.PY] Importing schemas...")
+try:
+    from .schemas import IR, Track, Note, SampleEvent
+    print("[MODEL_SERVER.PY]   ✅ Schemas imported successfully")
+except ImportError as e:
+    print(f"[MODEL_SERVER.PY]   ❌ Failed to import schemas: {e}")
+    traceback.print_exc()
+    raise
 
 # Import your trained model wrapper
+print("[MODEL_SERVER.PY] Attempting to import MelodyPredictor...")
+print("[MODEL_SERVER.PY]   Trying: from .inference.predictor import ImprovedMelodyPredictor")
+
+MelodyPredictor = None
 try:
-    from inference.predictor import ImprovedMelodyPredictor as MelodyPredictor
-except ImportError:
+    from .inference.predictor import ImprovedMelodyPredictor as MelodyPredictor
+    print("[MODEL_SERVER.PY]   ✅ SUCCESS - MelodyPredictor imported!")
+    print(f"[MODEL_SERVER.PY]   MelodyPredictor type: {type(MelodyPredictor)}")
+except ImportError as e:
+    print(f"[MODEL_SERVER.PY]   ❌ FAILED - ImportError: {e}")
+    print("[MODEL_SERVER.PY]   Full traceback:")
+    traceback.print_exc()
+    print("[MODEL_SERVER.PY]   MelodyPredictor will be None")
     MelodyPredictor = None
+except Exception as e:
+    print(f"[MODEL_SERVER.PY]   ❌ FAILED - Unexpected error: {e}")
+    print("[MODEL_SERVER.PY]   Full traceback:")
+    traceback.print_exc()
+    print("[MODEL_SERVER.PY]   MelodyPredictor will be None")
+    MelodyPredictor = None
+
+print(f"[MODEL_SERVER.PY] Final MelodyPredictor status: {MelodyPredictor is not None}")
+print("[MODEL_SERVER.PY] ========================================")
 
 
 class ModelServer:
@@ -24,85 +60,121 @@ class ModelServer:
 
     def __init__(self):
         """Initialize model server and optionally load trained model"""
+        print("[ModelServer.__init__] ========================================")
+        print("[ModelServer.__init__] Initializing ModelServer")
+
         checkpoint_path = Path("backend/checkpoints/best_model.pth")
+        print(f"[ModelServer.__init__]   Checkpoint path: {checkpoint_path}")
+        print(f"[ModelServer.__init__]   Checkpoint path (absolute): {checkpoint_path.absolute()}")
+        print(f"[ModelServer.__init__]   Checkpoint exists: {checkpoint_path.exists()}")
+
+        if checkpoint_path.exists():
+            size_mb = checkpoint_path.stat().st_size / (1024 * 1024)
+            print(f"[ModelServer.__init__]   Checkpoint size: {size_mb:.1f} MB")
+
+        print(f"[ModelServer.__init__]   MelodyPredictor is None: {MelodyPredictor is None}")
+        print(f"[ModelServer.__init__]   Checkpoint exists: {checkpoint_path.exists()}")
 
         if MelodyPredictor is not None and checkpoint_path.exists():
+            print("[ModelServer.__init__] ✅ Both conditions met - attempting to load model")
             try:
+                print(f"[ModelServer.__init__]   Creating MelodyPredictor instance...")
+                print(f"[ModelServer.__init__]   Args: checkpoint={checkpoint_path}, threshold=0.5, min_note_duration=0.1")
+
                 self.predictor = MelodyPredictor(
                     str(checkpoint_path),
-                    threshold=0.5,  # Adjust this based on your validation results
-                    min_note_duration=0.1  # Filter very short notes
+                    threshold=0.5,
+                    min_note_duration=0.1
                 )
-                print(f"✅ Loaded trained model from {checkpoint_path}")
+                print(f"[ModelServer.__init__]   ✅ Model loaded successfully!")
+                print(f"[ModelServer.__init__]   Predictor device: {self.predictor.device}")
             except Exception as e:
-                print(f"⚠️ Failed to load model: {e}")
-                import traceback
+                print(f"[ModelServer.__init__]   ❌ Failed to load model: {e}")
+                print("[ModelServer.__init__]   Full traceback:")
                 traceback.print_exc()
                 self.predictor = None
         else:
+            print("[ModelServer.__init__] ❌ Conditions NOT met for loading model:")
             self.predictor = None
             if not checkpoint_path.exists():
-                print(f"⚠️ No trained model found at {checkpoint_path}")
+                print(f"[ModelServer.__init__]   ❌ No trained model found at {checkpoint_path}")
             if MelodyPredictor is None:
-                print("⚠️ MelodyPredictor not available")
-            print("Using mock predictions")
+                print("[ModelServer.__init__]   ❌ MelodyPredictor not available (import failed)")
+            print("[ModelServer.__init__]   Using mock predictions")
 
         # Define scales for fallback
-        self.c_major_scale = [60, 62, 64, 65, 67, 69, 71, 72]  # C4–C5
-        self.a_minor_scale = [57, 59, 60, 62, 64, 65, 67, 69]  # A3–A5
+        self.c_major_scale = [60, 62, 64, 65, 67, 69, 71, 72]
+        self.a_minor_scale = [57, 59, 60, 62, 64, 65, 67, 69]
+
+        print(f"[ModelServer.__init__] Final predictor status: {self.predictor is not None}")
+        print("[ModelServer.__init__] ========================================")
 
     async def predict_melody(self, audio_features: Dict[str, Any]) -> Track:
         """
         Predict melody from humming audio features.
         Uses trained model if available; otherwise falls back to mock predictions.
         """
+        print("[ModelServer.predict_melody] ========================================")
+        print(f"[ModelServer.predict_melody] Called with audio_features keys: {list(audio_features.keys())}")
+        print(f"[ModelServer.predict_melody] Predictor is None: {self.predictor is None}")
+
         # Handle invalid or missing inputs
         if not audio_features:
-            print("⚠️ Missing audio features, using mock.")
+            print("[ModelServer.predict_melody] ⚠️ Missing audio features, using mock.")
             return self._mock_melody(audio_features)
 
         # Try real model if available
         if self.predictor is not None:
+            print("[ModelServer.predict_melody] ✅ Predictor available - attempting real inference")
             try:
                 # Priority 1: Raw audio bytes (best for API uploads)
                 audio_bytes = audio_features.get("audio_bytes")
                 if audio_bytes:
-                    print("[Model] Using raw audio bytes")
-                    track = self.predictor.predict_from_bytes(audio_bytes)
+                    print(f"[ModelServer.predict_melody]   Using raw audio bytes ({len(audio_bytes)} bytes)")
+                    print(f"[ModelServer.predict_melody]   🔴 USING RAW PREDICTION MODE - NO POST-PROCESSING")
+
+                    # Load audio from bytes
+                    import io
+                    import librosa
+                    audio_file = io.BytesIO(audio_bytes)
+                    audio, sr = librosa.load(audio_file, sr=16000, mono=True)
+
+                    # Use RAW prediction
+                    track = self.predictor.predict_from_audio_RAW(audio)
                     if track and getattr(track, "notes", None):
-                        print(f"✅ Generated {len(track.notes)} notes from trained model")
+                        print(f"[ModelServer.predict_melody]   ✅ Generated {len(track.notes)} RAW notes from trained model")
                         return track
 
                 # Priority 2: Audio array (if already loaded)
                 audio = audio_features.get("audio")
                 if audio is not None and isinstance(audio, np.ndarray):
-                    print("[Model] Using audio array")
+                    print(f"[ModelServer.predict_melody]   Using audio array (shape: {audio.shape})")
                     track = self.predictor.predict_from_audio(audio)
                     if track and getattr(track, "notes", None):
-                        print(f"✅ Generated {len(track.notes)} notes from trained model")
+                        print(f"[ModelServer.predict_melody]   ✅ Generated {len(track.notes)} notes from trained model")
                         return track
 
                 # Priority 3: File path
                 audio_path = audio_features.get("audio_path")
                 if audio_path:
-                    print("[Model] Using audio file path")
+                    print(f"[ModelServer.predict_melody]   Using audio file path: {audio_path}")
                     track = self.predictor.predict_from_file(audio_path)
                     if track and getattr(track, "notes", None):
-                        print(f"✅ Generated {len(track.notes)} notes from trained model")
+                        print(f"[ModelServer.predict_melody]   ✅ Generated {len(track.notes)} notes from trained model")
                         return track
 
                 # If we get here, no valid audio format was provided
-                print("⚠️ No valid audio format (need audio_bytes, audio array, or audio_path)")
+                print("[ModelServer.predict_melody]   ⚠️ No valid audio format (need audio_bytes, audio array, or audio_path)")
                 return self._mock_melody(audio_features)
 
             except Exception as e:
-                print(f"⚠️ Model inference failed: {e}")
-                import traceback
+                print(f"[ModelServer.predict_melody]   ❌ Model inference failed: {e}")
+                print("[ModelServer.predict_melody]   Full traceback:")
                 traceback.print_exc()
                 return self._mock_melody(audio_features)
         else:
             # Fallback to mock predictions
-            print("⚠️ No trained model loaded, using mock.")
+            print("[ModelServer.predict_melody] ❌ No trained model loaded, using mock.")
             return self._mock_melody(audio_features)
 
 
@@ -140,11 +212,11 @@ class ModelServer:
 
         # Generate bass (use start times from melody)
         bass_notes = []
-        for i, note in enumerate(melody_track.notes[::2]):  # Every other note
+        for i, note in enumerate(melody_track.notes[::2]):
             bass_notes.append(
                 Note(
                     pitch=note.pitch - 12,
-                    start=note.start,  # Use same start time
+                    start=note.start,
                     duration=note.duration * 2,
                     velocity=0.8,
                 )
@@ -179,6 +251,8 @@ class ModelServer:
 
     def _mock_melody(self, audio_features: Dict[str, Any]) -> Track:
         """Fallback melody generator for testing."""
+        print("[ModelServer._mock_melody] Using mock melody generator")
+
         onset_times = audio_features.get("onset_times", [])
         duration = audio_features.get("duration", 4.0)
         notes = []
@@ -193,15 +267,19 @@ class ModelServer:
             else:
                 note_duration = min(1.0, duration - start_time)
             velocity = random.uniform(0.6, 0.9)
-            
-            # IMPORTANT: Include start time!
+
             notes.append(Note(
                 pitch=pitch,
-                start=start_time,  # Now included
+                start=start_time,
                 duration=note_duration,
                 velocity=velocity
             ))
 
+        print(f"[ModelServer._mock_melody]   Generated {len(notes)} mock notes")
         return Track(
             id="melody", instrument="guitar/rjs_guitar_new_strings", notes=notes, samples=None
         )
+
+
+print("[MODEL_SERVER.PY] Class definition complete")
+print("[MODEL_SERVER.PY] ========================================")
