@@ -24,7 +24,7 @@ export function WaveformCanvas({ analyser, height = 80, width = 400 }: { analyse
 
         function draw() {
             rafRef.current = requestAnimationFrame(draw);
-            analyser.getByteTimeDomainData(dataArray);
+            analyser?.getByteTimeDomainData(dataArray);
 
             ctx.fillStyle = "transparent";
             ctx.clearRect(0, 0, width, height);

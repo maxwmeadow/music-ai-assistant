@@ -1,13 +1,13 @@
 FROM python:3.11-slim
 
-WORKDIR /app
+WORKDIR /app/backend
 
 # Install deps
-COPY backend/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 # Copy source into /app/backend 
-COPY backend/ /app/backend/
+COPY . /app/backend
 # For compiler code soon:
 # COPY compiler/ /app/compiler/
 
