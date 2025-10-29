@@ -14,20 +14,22 @@ from .audio_processor import AudioProcessor
 from .model_server import ModelServer
 from .database import TrainingDataDB
 
+USING_DOCKER=True
+
 settings = load_settings()
 
 # Initialize components
 app = FastAPI(title="Music Backend", version="0.2.0")
 audio_processor = AudioProcessor(target_sr=16000)
 model_server = ModelServer()
-db = TrainingDataDB(db_path="backend/training_data.db")
+db = TrainingDataDB(db_path="training_data.db" if USING_DOCKER else "backend/training_data.db")
 
 # Create audio storage directory
-AUDIO_STORAGE = Path("backend/audio_uploads")
+AUDIO_STORAGE = Path("audio_uploads" if USING_DOCKER else "backend/audio_uploads")
 AUDIO_STORAGE.mkdir(exist_ok=True, parents=True)
 
 # Add to .gitignore
-GITIGNORE_PATH = Path("backend/.gitignore")
+GITIGNORE_PATH = Path(".gitignore" if USING_DOCKER else  "backend/.gitignore")
 if not GITIGNORE_PATH.exists():
     GITIGNORE_PATH.write_text("audio_uploads/\n*.db\n")
 else:
