@@ -26,6 +26,7 @@ services:
       - RUNNER_INGEST_URL=http://runner:5001/eval
       - RUNNER_INBOX_PATH=
       - REQUEST_TIMEOUT_S=3
+      - PYTHONPATH=/app
     volumes:
       - ./backend:/app/backend
     depends_on:
