@@ -1,7 +1,7 @@
 ﻿Write-Host 'Stopping all services...' -ForegroundColor Red
 
 # Kill by PID
-@(10200, 14512, 23280) | ForEach-Object {
+@(12324, 23220, 5788) | ForEach-Object {
     try {
         Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue
         Write-Host '  Stopped process' $_ -ForegroundColor Gray

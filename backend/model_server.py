@@ -28,11 +28,11 @@ except ImportError as e:
 
 # Import your trained model wrapper
 print("[MODEL_SERVER.PY] Attempting to import MelodyPredictor...")
-print("[MODEL_SERVER.PY]   Trying: from .inference.predictor import ImprovedMelodyPredictor")
+print("[MODEL_SERVER.PY]   Trying: from .inference.predictor import MelodyPredictor")
 
 MelodyPredictor = None
 try:
-    from .inference.predictor import ImprovedMelodyPredictor as MelodyPredictor
+    from .inference.predictor import MelodyPredictor
     print("[MODEL_SERVER.PY]   ✅ SUCCESS - MelodyPredictor imported!")
     print(f"[MODEL_SERVER.PY]   MelodyPredictor type: {type(MelodyPredictor)}")
 except ImportError as e:
@@ -63,7 +63,7 @@ class ModelServer:
         print("[ModelServer.__init__] ========================================")
         print("[ModelServer.__init__] Initializing ModelServer")
 
-        checkpoint_path = Path("backend/checkpoints/best_model.pth")
+        checkpoint_path = Path("backend/checkpoints/combined_hum2melody_full.pth")
         print(f"[ModelServer.__init__]   Checkpoint path: {checkpoint_path}")
         print(f"[ModelServer.__init__]   Checkpoint path (absolute): {checkpoint_path.absolute()}")
         print(f"[ModelServer.__init__]   Checkpoint exists: {checkpoint_path.exists()}")
