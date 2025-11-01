@@ -14,11 +14,22 @@ class SampleEvent(BaseModel):
     sample: Literal["kick", "snare", "hihat", "clap", "perc"]  # extendable
     start: float            # when to trigger it
 
+class ChordEvent(BaseModel):
+    """Chord event for harmony track."""
+    root: str              # Root note ("C", "D#", etc.)
+    quality: str           # Chord quality ("major", "minor", "dom7", etc.)
+    roman: str             # Roman numeral analysis ("I", "V7", "ii", etc.)
+    start: float           # Start time in seconds
+    duration: float        # Duration in seconds
+
 class Track(BaseModel):
     id: str
     instrument: Optional[str] = None
     notes: Optional[List[Note]] = None
     samples: Optional[List[SampleEvent]] = None
+    # Music theory metadata (from post-processing)
+    metadata: Optional[Dict[str, Any]] = None      # key, tempo, grid_resolution, etc.
+    harmony: Optional[List[ChordEvent]] = None     # Chord progression
 
 class IR(BaseModel):
     metadata: Dict[str, Any]  # at least { "tempo": int }
