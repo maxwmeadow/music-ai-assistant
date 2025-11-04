@@ -16,7 +16,8 @@ from pathlib import Path
 
 # Add paths for imports
 script_dir = Path(__file__).parent.resolve()
-sys.path.insert(0, str(script_dir / 'hum2melody_package'))
+package_dir = script_dir.parent  # backend/hum2melody
+sys.path.insert(0, str(package_dir))
 sys.path.insert(0, str(script_dir))
 
 import argparse
@@ -430,7 +431,7 @@ Examples:
     parser.add_argument('--audio', type=str, required=True,
                        help='Path to audio file (.wav, .mp3, etc.)')
     parser.add_argument('--checkpoint', type=str,
-                       default='hum2melody_package/checkpoints/combined_hum2melody_full.pth',
+                       default='checkpoints/combined_hum2melody_full.pth',
                        help='Path to combined model checkpoint')
     parser.add_argument('--output', type=str, default=None,
                        help='Output JSON file path')

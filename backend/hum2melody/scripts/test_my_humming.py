@@ -19,9 +19,12 @@ from pathlib import Path
 import json
 
 # Add to path
-sys.path.insert(0, str(Path(__file__).parent))
+script_dir = Path(__file__).parent.resolve()
+package_dir = script_dir.parent  # backend/hum2melody
+sys.path.insert(0, str(package_dir))
+sys.path.insert(0, str(package_dir / 'inference'))
 
-from hybrid_inference_chunked import ChunkedHybridHum2Melody
+from inference.hybrid_inference_chunked import ChunkedHybridHum2Melody
 
 
 def test_single_file(audio_path, predictor, visualize=False, save_json=False):
@@ -139,8 +142,8 @@ Examples:
     )
     parser.add_argument(
         '--checkpoint',
-        default='hum2melody_package/checkpoints/combined_hum2melody_full.pth',
-        help='Path to combined model checkpoint'
+        default='../checkpoints/combined_hum2melody_full.pth',
+        help='Path to combined model checkpoint (relative to scripts dir)'
     )
     parser.add_argument(
         '--device',

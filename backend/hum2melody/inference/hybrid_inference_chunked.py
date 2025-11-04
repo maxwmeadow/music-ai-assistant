@@ -12,7 +12,8 @@ import sys
 from pathlib import Path
 
 script_dir = Path(__file__).parent.resolve()
-sys.path.insert(0, str(script_dir / 'hum2melody_package'))
+package_dir = script_dir.parent  # backend/hum2melody
+sys.path.insert(0, str(package_dir))
 sys.path.insert(0, str(script_dir))
 
 import numpy as np
@@ -206,7 +207,7 @@ def main():
     parser.add_argument('--audio', required=True, help='Audio file to process')
     parser.add_argument(
         '--checkpoint',
-        default='hum2melody_package/checkpoints/combined_hum2melody_full.pth',
+        default='checkpoints/combined_hum2melody_full.pth',
         help='Model checkpoint'
     )
     parser.add_argument('--device', default='cpu', help='cpu or cuda')
