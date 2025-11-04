@@ -8,6 +8,7 @@ services:
       - "3000:3000"
     environment:
       - REACT_APP_BACKEND_URL=http://localhost:8000
+    command: npm run dev
     volumes:
       - ./frontend:/app
       - /app/node_modules

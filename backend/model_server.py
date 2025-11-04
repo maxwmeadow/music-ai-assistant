@@ -26,29 +26,29 @@ except ImportError as e:
     traceback.print_exc()
     raise
 
-# Import your trained model wrapper
-print("[MODEL_SERVER.PY] Attempting to import MelodyPredictor...")
-print("[MODEL_SERVER.PY]   Trying: from .inference.predictor import MelodyPredictor")
+# Import the new hum2melody package
+print("[MODEL_SERVER.PY] Attempting to import ChunkedHybridHum2Melody...")
+print("[MODEL_SERVER.PY]   Trying: from .hum2melody.inference.hybrid_inference_chunked import ChunkedHybridHum2Melody")
 
-MelodyPredictor = None
+ChunkedHybridHum2Melody = None
 try:
-    from .inference.predictor import MelodyPredictor
-    print("[MODEL_SERVER.PY]   ✅ SUCCESS - MelodyPredictor imported!")
-    print(f"[MODEL_SERVER.PY]   MelodyPredictor type: {type(MelodyPredictor)}")
+    from .hum2melody.inference.hybrid_inference_chunked import ChunkedHybridHum2Melody
+    print("[MODEL_SERVER.PY]   ✅ SUCCESS - ChunkedHybridHum2Melody imported!")
+    print(f"[MODEL_SERVER.PY]   ChunkedHybridHum2Melody type: {type(ChunkedHybridHum2Melody)}")
 except ImportError as e:
     print(f"[MODEL_SERVER.PY]   ❌ FAILED - ImportError: {e}")
     print("[MODEL_SERVER.PY]   Full traceback:")
     traceback.print_exc()
-    print("[MODEL_SERVER.PY]   MelodyPredictor will be None")
-    MelodyPredictor = None
+    print("[MODEL_SERVER.PY]   ChunkedHybridHum2Melody will be None")
+    ChunkedHybridHum2Melody = None
 except Exception as e:
     print(f"[MODEL_SERVER.PY]   ❌ FAILED - Unexpected error: {e}")
     print("[MODEL_SERVER.PY]   Full traceback:")
     traceback.print_exc()
-    print("[MODEL_SERVER.PY]   MelodyPredictor will be None")
-    MelodyPredictor = None
+    print("[MODEL_SERVER.PY]   ChunkedHybridHum2Melody will be None")
+    ChunkedHybridHum2Melody = None
 
-print(f"[MODEL_SERVER.PY] Final MelodyPredictor status: {MelodyPredictor is not None}")
+print(f"[MODEL_SERVER.PY] Final ChunkedHybridHum2Melody status: {ChunkedHybridHum2Melody is not None}")
 print("[MODEL_SERVER.PY] ========================================")
 
 
@@ -63,7 +63,7 @@ class ModelServer:
         print("[ModelServer.__init__] ========================================")
         print("[ModelServer.__init__] Initializing ModelServer")
 
-        checkpoint_path = Path("backend/checkpoints/combined_hum2melody_full.pth")
+        checkpoint_path = Path("hum2melody/checkpoints/combined_hum2melody_full.pth")
         print(f"[ModelServer.__init__]   Checkpoint path: {checkpoint_path}")
         print(f"[ModelServer.__init__]   Checkpoint path (absolute): {checkpoint_path.absolute()}")
         print(f"[ModelServer.__init__]   Checkpoint exists: {checkpoint_path.exists()}")
@@ -72,19 +72,22 @@ class ModelServer:
             size_mb = checkpoint_path.stat().st_size / (1024 * 1024)
             print(f"[ModelServer.__init__]   Checkpoint size: {size_mb:.1f} MB")
 
-        print(f"[ModelServer.__init__]   MelodyPredictor is None: {MelodyPredictor is None}")
+        print(f"[ModelServer.__init__]   ChunkedHybridHum2Melody is None: {ChunkedHybridHum2Melody is None}")
         print(f"[ModelServer.__init__]   Checkpoint exists: {checkpoint_path.exists()}")
 
-        if MelodyPredictor is not None and checkpoint_path.exists():
+        if ChunkedHybridHum2Melody is not None and checkpoint_path.exists():
             print("[ModelServer.__init__] ✅ Both conditions met - attempting to load model")
             try:
-                print(f"[ModelServer.__init__]   Creating MelodyPredictor instance...")
-                print(f"[ModelServer.__init__]   Args: checkpoint={checkpoint_path}, threshold=0.5, min_note_duration=0.1")
+                print(f"[ModelServer.__init__]   Creating ChunkedHybridHum2Melody instance...")
+                print(f"[ModelServer.__init__]   Args: checkpoint={checkpoint_path}, device=cpu")
 
-                self.predictor = MelodyPredictor(
-                    str(checkpoint_path),
-                    threshold=0.5,
-                    min_note_duration=0.1
+                self.predictor = ChunkedHybridHum2Melody(
+                    checkpoint_path=str(checkpoint_path),
+                    device='cpu',
+                    onset_high=0.30,
+                    onset_low=0.10,
+                    offset_high=0.30,
+                    offset_low=0.10
                 )
                 print(f"[ModelServer.__init__]   ✅ Model loaded successfully!")
                 print(f"[ModelServer.__init__]   Predictor device: {self.predictor.device}")
@@ -98,8 +101,8 @@ class ModelServer:
             self.predictor = None
             if not checkpoint_path.exists():
                 print(f"[ModelServer.__init__]   ❌ No trained model found at {checkpoint_path}")
-            if MelodyPredictor is None:
-                print("[ModelServer.__init__]   ❌ MelodyPredictor not available (import failed)")
+            if ChunkedHybridHum2Melody is None:
+                print("[ModelServer.__init__]   ❌ ChunkedHybridHum2Melody not available (import failed)")
             print("[ModelServer.__init__]   Using mock predictions")
 
         # Define scales for fallback
@@ -127,45 +130,58 @@ class ModelServer:
         if self.predictor is not None:
             print("[ModelServer.predict_melody] ✅ Predictor available - attempting real inference")
             try:
-                # Priority 1: Raw audio bytes (best for API uploads)
-                audio_bytes = audio_features.get("audio_bytes")
-                if audio_bytes:
-                    print(f"[ModelServer.predict_melody]   Using raw audio bytes ({len(audio_bytes)} bytes)")
-                    print(f"[ModelServer.predict_melody]   🔴 USING RAW PREDICTION MODE - NO POST-PROCESSING")
+                import tempfile
+                import os
 
-                    # Load audio from bytes
-                    import io
-                    import librosa
-                    audio_file = io.BytesIO(audio_bytes)
-                    audio, sr = librosa.load(audio_file, sr=16000, mono=True)
-
-                    # Use RAW prediction
-                    track = self.predictor.predict_from_audio_RAW(audio)
-                    if track and getattr(track, "notes", None):
-                        print(f"[ModelServer.predict_melody]   ✅ Generated {len(track.notes)} RAW notes from trained model")
-                        return track
-
-                # Priority 2: Audio array (if already loaded)
-                audio = audio_features.get("audio")
-                if audio is not None and isinstance(audio, np.ndarray):
-                    print(f"[ModelServer.predict_melody]   Using audio array (shape: {audio.shape})")
-                    track = self.predictor.predict_from_audio(audio)
-                    if track and getattr(track, "notes", None):
-                        print(f"[ModelServer.predict_melody]   ✅ Generated {len(track.notes)} notes from trained model")
-                        return track
-
-                # Priority 3: File path
+                # Get audio file path or create temporary file
                 audio_path = audio_features.get("audio_path")
-                if audio_path:
-                    print(f"[ModelServer.predict_melody]   Using audio file path: {audio_path}")
-                    track = self.predictor.predict_from_file(audio_path)
-                    if track and getattr(track, "notes", None):
-                        print(f"[ModelServer.predict_melody]   ✅ Generated {len(track.notes)} notes from trained model")
-                        return track
+                temp_file = None
 
-                # If we get here, no valid audio format was provided
-                print("[ModelServer.predict_melody]   ⚠️ No valid audio format (need audio_bytes, audio array, or audio_path)")
-                return self._mock_melody(audio_features)
+                # If audio_bytes provided, save to temp file
+                audio_bytes = audio_features.get("audio_bytes")
+                if audio_bytes and not audio_path:
+                    print(f"[ModelServer.predict_melody]   Saving audio bytes ({len(audio_bytes)} bytes) to temp file")
+                    temp_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                    temp_file.write(audio_bytes)
+                    temp_file.close()
+                    audio_path = temp_file.name
+                    print(f"[ModelServer.predict_melody]   Temp file created: {audio_path}")
+
+                if audio_path and os.path.exists(audio_path):
+                    print(f"[ModelServer.predict_melody]   Using audio file: {audio_path}")
+
+                    # Call predict_chunked with min_confidence=0.25 (recommended for production)
+                    notes = self.predictor.predict_chunked(audio_path, min_confidence=0.25)
+
+                    print(f"[ModelServer.predict_melody]   ✅ Generated {len(notes)} notes from trained model")
+
+                    # Convert notes to Track format
+                    track_notes = []
+                    for note_dict in notes:
+                        note = Note(
+                            pitch=note_dict['midi'],
+                            start=note_dict['start'],
+                            duration=note_dict['duration'],
+                            velocity=int(note_dict['confidence'] * 127)  # Convert confidence to velocity
+                        )
+                        track_notes.append(note)
+
+                    # Clean up temp file if we created one
+                    if temp_file:
+                        try:
+                            os.unlink(temp_file.name)
+                            print(f"[ModelServer.predict_melody]   Cleaned up temp file")
+                        except:
+                            pass
+
+                    if track_notes:
+                        return Track(notes=track_notes)
+                    else:
+                        print("[ModelServer.predict_melody]   ⚠️ No notes generated, using mock")
+                        return self._mock_melody(audio_features)
+                else:
+                    print("[ModelServer.predict_melody]   ⚠️ No valid audio file path available")
+                    return self._mock_melody(audio_features)
 
             except Exception as e:
                 print(f"[ModelServer.predict_melody]   ❌ Model inference failed: {e}")
