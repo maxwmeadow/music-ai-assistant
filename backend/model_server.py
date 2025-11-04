@@ -79,14 +79,15 @@ class ModelServer:
             print("[ModelServer.__init__] ✅ Both conditions met - attempting to load model")
             try:
                 print(f"[ModelServer.__init__]   Creating ChunkedHybridHum2Melody instance...")
-                print(f"[ModelServer.__init__]   Args: checkpoint={checkpoint_path}, min_confidence=0.25 (recommended)")
+                print(f"[ModelServer.__init__]   Args: checkpoint={checkpoint_path}, device=cpu")
 
                 self.predictor = ChunkedHybridHum2Melody(
                     checkpoint_path=str(checkpoint_path),
                     device='cpu',
-                    min_confidence=0.25,  # Recommended for production (85% accuracy)
                     onset_high=0.30,
-                    onset_low=0.10
+                    onset_low=0.10,
+                    offset_high=0.30,
+                    offset_low=0.10
                 )
                 print(f"[ModelServer.__init__]   ✅ Model loaded successfully!")
                 print(f"[ModelServer.__init__]   Predictor device: {self.predictor.device}")
