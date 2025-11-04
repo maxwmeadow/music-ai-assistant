@@ -63,7 +63,7 @@ class ModelServer:
         print("[ModelServer.__init__] ========================================")
         print("[ModelServer.__init__] Initializing ModelServer")
 
-        checkpoint_path = Path("backend/hum2melody/checkpoints/combined_hum2melody_full.pth")
+        checkpoint_path = Path("hum2melody/checkpoints/combined_hum2melody_full.pth")
         print(f"[ModelServer.__init__]   Checkpoint path: {checkpoint_path}")
         print(f"[ModelServer.__init__]   Checkpoint path (absolute): {checkpoint_path.absolute()}")
         print(f"[ModelServer.__init__]   Checkpoint exists: {checkpoint_path.exists()}")
