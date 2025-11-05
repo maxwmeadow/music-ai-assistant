@@ -6,7 +6,7 @@ import { MixerPanel } from "@/components/MixerPanel";
 import { api } from "@/lib/api";
 import { RecorderControls } from "@/components/RecorderControls";
 import { parseTracksFromDSL, ParsedTrack } from "@/lib/dslParser";
-import { Mic, Music, Drum, Play, Square, Sparkles } from "lucide-react";
+import { Mic, Music, Drum, Play, Square, Sparkles, Sliders, Piano, ChevronDown, ChevronUp } from "lucide-react";
 import { Timeline } from "@/components/Timeline/Timeline";
 import { usePlaybackTime } from "@/hooks/usePlaybackTime";
 import { PianoRoll } from "@/components/PianoRoll/PianoRoll";
@@ -31,6 +31,11 @@ export default function Home() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [visualizationData, setVisualizationData] = useState<VisualizationData | null>(null);
   const [currentIR, setCurrentIR] = useState<any>(null);
+
+  // Panel visibility
+  const [showMixer, setShowMixer] = useState(false);
+  const [showRecorder, setShowRecorder] = useState(false);
+  const [recordingMode, setRecordingMode] = useState<'melody' | 'drums' | null>(null);
 
   const showToast = (message: string) => {
     setToast(message);
@@ -176,17 +181,14 @@ export default function Home() {
     }
   };
 
-  // NEW: Handle melody generation from recorder
   const handleMelodyGenerated = async (result: any) => {
     console.log("[DEBUG] handleMelodyGenerated called with:", result);
     console.log("[DEBUG] Has visualization?", !!result.visualization);
     console.log("[DEBUG] Has session_id?", !!result.session_id);
 
     try {
-      // Check if we have visualization data (from hum2melody with return_visualization=true)
       if (result.visualization && result.session_id) {
         console.log("[DEBUG] Opening tuning modal with session:", result.session_id);
-        // Store data and open tuning modal
         setSessionId(result.session_id);
         setVisualizationData(result.visualization);
         setCurrentIR(result.ir);
@@ -194,21 +196,22 @@ export default function Home() {
         showToast("Tuning interface ready - adjust parameters to improve detection");
       } else {
         console.log("[DEBUG] No visualization data, using IR directly");
-        // No visualization data - use IR directly
         await applyIRAndCompile(result.ir);
       }
     } catch (error) {
       console.error("Failed to process melody:", error);
       showToast("Failed to process melody");
     }
+
+    // Close recorder after generation
+    setShowRecorder(false);
+    setRecordingMode(null);
   };
 
-  // Apply IR and compile to DSL
   const applyIRAndCompile = async (ir: any) => {
     showToast("Converting to DSL...");
 
     try {
-      // Send IR to /run endpoint to get DSL
       const response = await api("/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -234,14 +237,18 @@ export default function Home() {
     }
   };
 
-  // Handle tuning apply
   const handleApplyTuning = async (finalIR: any) => {
     setTuningMode(false);
     await applyIRAndCompile(finalIR);
   };
 
+  const openRecorder = (mode: 'melody' | 'drums') => {
+    setRecordingMode(mode);
+    setShowRecorder(true);
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+    <div className="h-screen flex flex-col bg-[#1a1a1a] overflow-hidden">
       {/* Detection Tuner Modal */}
       {tuningMode && visualizationData && sessionId && currentIR && (
         <DetectionTuner
@@ -259,149 +266,248 @@ export default function Home() {
 
       {/* Toast */}
       {toast && (
-        <div className="fixed top-6 right-6 bg-white/10 backdrop-blur-lg border border-white/20 text-white px-6 py-3 rounded-xl shadow-2xl z-50 animate-fade-in">
+        <div className="fixed top-4 right-4 bg-[#2a2a2a] border border-gray-700 text-white px-4 py-3 rounded-lg shadow-xl z-50 animate-fade-in">
           {toast}
         </div>
       )}
 
-      {/* Header */}
-      <div className="border-b border-white/10 bg-black/20 backdrop-blur-sm">
-        <div className="max-w-7xl mx-auto px-8 py-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center">
-              <Sparkles className="w-6 h-6 text-white" />
+      {/* Recorder Modal */}
+      {showRecorder && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-[#252525] border border-gray-700 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                {recordingMode === 'melody' ? (
+                  <>
+                    <Mic className="w-5 h-5 text-blue-400" />
+                    Record Melody
+                  </>
+                ) : (
+                  <>
+                    <Drum className="w-5 h-5 text-orange-400" />
+                    Record Drums
+                  </>
+                )}
+              </h2>
+              <button
+                onClick={() => {
+                  setShowRecorder(false);
+                  setRecordingMode(null);
+                }}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
             </div>
-            <div>
-              <h1 className="text-2xl font-bold text-white">Music AI Studio</h1>
-              <p className="text-sm text-purple-200">Turn your voice into music</p>
-            </div>
+            <RecorderControls onMelodyGenerated={handleMelodyGenerated} />
           </div>
+        </div>
+      )}
+
+      {/* Top Toolbar */}
+      <div className="flex-none h-16 bg-[#252525] border-b border-gray-800 flex items-center px-4 gap-4">
+        {/* Logo */}
+        <div className="flex items-center gap-2 mr-4">
+          <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
+            <Music className="w-5 h-5 text-white" />
+          </div>
+          <span className="text-white font-bold text-lg">Studio</span>
+        </div>
+
+        {/* Model Buttons */}
+        <div className="flex items-center gap-2 border-r border-gray-700 pr-4">
+          <button
+            onClick={() => openRecorder('melody')}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors text-sm font-medium"
+          >
+            <Mic className="w-4 h-4" />
+            Hum2Melody
+          </button>
+          <button
+            onClick={() => openRecorder('drums')}
+            className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded-lg transition-colors text-sm font-medium"
+          >
+            <Drum className="w-4 h-4" />
+            Beatbox2Drums
+          </button>
+          <button
+            disabled
+            className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-gray-400 rounded-lg text-sm font-medium cursor-not-allowed"
+            title="Coming soon"
+          >
+            <Sparkles className="w-4 h-4" />
+            Arranger
+          </button>
+        </div>
+
+        {/* Transport Controls */}
+        <div className="flex items-center gap-2 border-r border-gray-700 pr-4">
+          {!isPlaying ? (
+            <button
+              disabled={loadingPlay || !executableCode}
+              onClick={playAudio}
+              className="flex items-center justify-center w-10 h-10 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg transition-colors"
+              title="Play (Space)"
+            >
+              <Play className="w-5 h-5" />
+            </button>
+          ) : (
+            <button
+              onClick={stopAudio}
+              className="flex items-center justify-center w-10 h-10 bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors"
+              title="Stop (Space)"
+            >
+              <Square className="w-5 h-5" />
+            </button>
+          )}
+
+          <button
+            disabled={loadingRun}
+            onClick={sendToRunner}
+            className="px-4 py-2 bg-[#2a2a2a] hover:bg-[#333] disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors border border-gray-700"
+          >
+            {loadingRun ? "Compiling..." : "Compile"}
+          </button>
+        </div>
+
+        {/* Panel Toggles */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowMixer(!showMixer)}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+              showMixer
+                ? 'bg-blue-600 text-white'
+                : 'bg-[#2a2a2a] text-gray-300 hover:bg-[#333] border border-gray-700'
+            }`}
+          >
+            <Sliders className="w-4 h-4" />
+            Mixer
+          </button>
+
+          {selectedTrackForPianoRoll ? (
+            <button
+              onClick={() => setSelectedTrackForPianoRoll(null)}
+              className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium transition-colors"
+            >
+              <Piano className="w-4 h-4" />
+              Close Piano Roll
+            </button>
+          ) : tracks.length > 0 && (
+            <div className="relative group">
+              <button
+                className="flex items-center gap-2 px-3 py-2 bg-[#2a2a2a] text-gray-300 hover:bg-[#333] border border-gray-700 rounded-lg text-sm font-medium transition-colors"
+              >
+                <Piano className="w-4 h-4" />
+                Piano Roll
+                <ChevronDown className="w-4 h-4" />
+              </button>
+              <div className="absolute top-full left-0 pt-1 hidden group-hover:block z-50">
+                <div className="bg-[#2a2a2a] border border-gray-700 rounded-lg shadow-xl min-w-[150px]">
+                  {tracks.map(track => (
+                    <button
+                      key={track.id}
+                      onClick={() => setSelectedTrackForPianoRoll(track.id)}
+                      className="block w-full text-left px-4 py-2 text-gray-300 hover:bg-[#333] first:rounded-t-lg last:rounded-b-lg transition-colors"
+                    >
+                      {track.id}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Right side - test button */}
+        <div className="ml-auto">
+          <button
+            disabled={loadingTest}
+            onClick={fetchTest}
+            className="px-4 py-2 bg-[#2a2a2a] hover:bg-[#333] disabled:opacity-50 text-gray-300 border border-gray-700 rounded-lg text-sm transition-colors"
+          >
+            {loadingTest ? "Loading..." : "Load Sample"}
+          </button>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-8 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-          {/* LEFT: Input Panel */}
-          <div className="space-y-6">
-            {/* Recording - NOW WITH CALLBACK */}
-            <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-2xl">
-              <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-                <Mic className="w-5 h-5" />
-                Record & Generate Melody
-              </h2>
-              <RecorderControls onMelodyGenerated={handleMelodyGenerated} />
-            </div>
-
-            {/* Quick Test */}
-            <button
-              disabled={loadingTest}
-              onClick={fetchTest}
-              className="w-full bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl px-6 py-3 transition-all duration-300 disabled:opacity-50 font-medium"
-            >
-              {loadingTest ? "Loading..." : "Load Sample Code"}
-            </button>
+      {/* Main Content Area - 2 Panel Layout */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* LEFT PANEL - Timeline */}
+        <div className="w-1/2 flex flex-col bg-[#1e1e1e] border-r border-gray-800 min-w-0">
+          <div className="flex-none px-4 py-3 bg-[#252525] border-b border-gray-800">
+            <h2 className="text-sm font-semibold text-gray-300">ARRANGEMENT</h2>
           </div>
-
-          {/* RIGHT: Code & Mixer */}
-          <div className="space-y-6">
-            {/* Code Editor */}
-            <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-2xl">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-bold text-white">Music Code</h2>
-                <div className="flex gap-2">
-                  <button
-                    disabled={loadingRun}
-                    onClick={sendToRunner}
-                    className="bg-blue-600 hover:bg-blue-500 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50"
-                  >
-                    {loadingRun ? "Compiling..." : "Compile"}
-                  </button>
-
-                  {!isPlaying ? (
-                    <button
-                      disabled={loadingPlay || !executableCode}
-                      onClick={playAudio}
-                      className="bg-green-600 hover:bg-green-500 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
-                    >
-                      <Play className="w-4 h-4" />
-                      Play
-                    </button>
-                  ) : (
-                    <button
-                      onClick={stopAudio}
-                      className="bg-red-600 hover:bg-red-500 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors flex items-center gap-2"
-                    >
-                      <Square className="w-4 h-4" />
-                      Stop
-                    </button>
-                  )}
+          <div className="flex-1 overflow-hidden p-4">
+            {tracks.length > 0 ? (
+              <Timeline
+                tracks={tracks}
+                dslCode={code}
+                onCodeChange={setCode}
+                isPlaying={isPlaying}
+                currentTime={currentTime}
+              />
+            ) : (
+              <div className="h-full flex items-center justify-center text-gray-500">
+                <div className="text-center">
+                  <Music className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                  <p className="text-sm">No tracks yet</p>
+                  <p className="text-xs mt-1">Record audio or load sample to get started</p>
                 </div>
-              </div>
-
-              <div className="rounded-xl overflow-hidden border border-white/10">
-                <CodeEditor value={code} onChange={setCode} />
-              </div>
-            </div>
-
-            {/* Mixer */}
-            {tracks.length > 0 && (
-              <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-2xl">
-                <MixerPanel tracks={tracks} onVolumeChange={handleVolumeChange} />
               </div>
             )}
           </div>
         </div>
 
-        {/* Timeline - Full Width */}
-        {tracks.length > 0 && (
-          <div className="mt-6 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-2xl">
-            <Timeline
-              tracks={tracks}
-              dslCode={code}
-              onCodeChange={setCode}
-              isPlaying={isPlaying}
-              currentTime={currentTime}
-            />
+        {/* RIGHT PANEL - Code Editor */}
+        <div className="w-1/2 flex flex-col bg-[#1e1e1e] min-w-0">
+          <div className="flex-none px-4 py-3 bg-[#252525] border-b border-gray-800">
+            <h2 className="text-sm font-semibold text-gray-300">CODE EDITOR</h2>
           </div>
-        )}
+          <div className="flex-1 overflow-hidden">
+            <CodeEditor value={code} onChange={setCode} />
+          </div>
+        </div>
+      </div>
 
-        {/* Track Selector for Piano Roll */}
-        {tracks.length > 0 && (
-          <div className="mt-6 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-2xl">
-            <h3 className="text-white font-semibold mb-3">Piano Roll View</h3>
-            <div className="flex gap-2">
-              {tracks.map(track => (
-                <button
-                  key={track.id}
-                  onClick={() => setSelectedTrackForPianoRoll(
-                    selectedTrackForPianoRoll === track.id ? null : track.id
-                  )}
-                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                    selectedTrackForPianoRoll === track.id
-                      ? 'bg-purple-600 text-white'
-                      : 'bg-white/10 text-gray-300 hover:bg-white/20'
-                  }`}
-                >
-                  {track.id}
-                </button>
-              ))}
+      {/* BOTTOM PANEL - Mixer (Toggleable) */}
+      {showMixer && tracks.length > 0 && (
+        <div className="flex-none h-56 bg-[#252525] border-t border-gray-800 overflow-x-auto overflow-y-hidden p-3">
+          <MixerPanel tracks={tracks} onVolumeChange={handleVolumeChange} />
+        </div>
+      )}
+
+      {/* Piano Roll Overlay */}
+      {selectedTrackForPianoRoll && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-40">
+          <div className="bg-[#1e1e1e] border border-gray-700 rounded-xl w-[90vw] h-[80vh] flex flex-col shadow-2xl">
+            <div className="flex-none px-4 py-3 bg-[#252525] border-b border-gray-800 flex items-center justify-between rounded-t-xl">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <Piano className="w-5 h-5 text-purple-400" />
+                Piano Roll - {selectedTrackForPianoRoll}
+              </h2>
+              <button
+                onClick={() => setSelectedTrackForPianoRoll(null)}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden p-4">
+              <PianoRoll
+                track={tracks.find(t => t.id === selectedTrackForPianoRoll)!}
+                dslCode={code}
+                onCodeChange={setCode}
+                isPlaying={isPlaying}
+                currentTime={currentTime}
+              />
             </div>
           </div>
-        )}
-
-        {selectedTrackForPianoRoll && (
-          <div className="mt-6 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-2xl">
-            <PianoRoll
-              track={tracks.find(t => t.id === selectedTrackForPianoRoll)!}
-              dslCode={code}
-              onCodeChange={setCode}
-              isPlaying={isPlaying}
-              currentTime={currentTime}
-            />
-          </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

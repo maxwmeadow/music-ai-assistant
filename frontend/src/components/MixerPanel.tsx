@@ -165,90 +165,84 @@ export function MixerPanel({ tracks, onVolumeChange }: MixerPanelProps) {
   }
 
   return (
-    <div>
-      <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-        <Music className="w-5 h-5" />
-        Mixer
-      </h3>
+    <div className="flex gap-3 overflow-x-auto pb-2">
+      {tracks.map((track) => {
+        const level = levels[track.id] ?? -60;
+        // Convert dB to percentage for meter (-60dB to 0dB range)
+        const levelPercent = Math.max(0, Math.min(100, ((level + 60) / 60) * 100));
 
-      <div className="flex gap-4 overflow-x-auto pb-2">
-        {tracks.map((track) => {
-          const level = levels[track.id] ?? -60;
-          // Convert dB to percentage for meter (-60dB to 0dB range)
-          const levelPercent = Math.max(0, Math.min(100, ((level + 60) / 60) * 100));
+        return (
+          <div key={track.id} className="flex flex-col items-center min-w-[80px] bg-[#2a2a2a] rounded-lg p-2 border border-gray-700">
+            {/* Track label */}
+            <div className="text-[10px] font-semibold text-gray-300 mb-2 truncate w-full text-center">
+              {track.id}
+            </div>
 
-          return (
-            <div key={track.id} className="flex flex-col items-center min-w-[110px] bg-white/5 rounded-xl p-3 border border-white/10">
-              {/* Track label */}
-              <div className="text-xs font-semibold text-purple-300 mb-3 truncate w-full text-center">
-                {track.id}
-              </div>
-
-              {/* Meter + Volume slider container */}
-              <div className="h-32 flex items-center gap-2 mb-1">
-                {/* dB Meter - vertical bar measuring actual audio */}
-                <div className="flex flex-col items-center gap-1">
-                  <div className="w-2 h-28 bg-gray-800 rounded-full overflow-hidden relative">
+            {/* Meter + Volume slider container */}
+            <div className="h-24 flex items-center gap-2 mb-1">
+              {/* dB Meter - vertical bar measuring actual audio */}
+              <div className="flex flex-col items-center gap-1">
+                <div className="w-1.5 h-20 bg-gray-800 rounded-full overflow-hidden relative">
+                  <div
+                    className={`absolute bottom-0 w-full transition-all duration-75 ${
+                      levelPercent > 90 ? 'bg-red-500' :
+                      levelPercent > 70 ? 'bg-yellow-500' :
+                      'bg-blue-500'
+                    }`}
+                    style={{ height: `${levelPercent}%` }}
+                  />
+                  {/* Peak indicators */}
+                  {[0, 25, 50, 75, 90].map(threshold => (
                     <div
-                      className={`absolute bottom-0 w-full transition-all duration-75 ${
-                        levelPercent > 90 ? 'bg-red-500' : 
-                        levelPercent > 70 ? 'bg-yellow-500' : 
-                        'bg-blue-500'
-                      }`}
-                      style={{ height: `${levelPercent}%` }}
+                      key={threshold}
+                      className="absolute w-full h-px bg-gray-600"
+                      style={{ bottom: `${threshold}%` }}
                     />
-                    {/* Peak indicators */}
-                    {[0, 25, 50, 75, 90].map(threshold => (
-                      <div
-                        key={threshold}
-                        className="absolute w-full h-px bg-gray-600"
-                        style={{ bottom: `${threshold}%` }}
-                      />
-                    ))}
-                  </div>
-                  {/* dB readout under meter */}
-                  <div className="text-[10px] font-mono text-blue-400 w-8 text-center">
-                    {level === -Infinity || level <= -60 ? '-∞' : level.toFixed(1)}
-                  </div>
+                  ))}
                 </div>
-
-                {/* Volume slider (rotated) */}
-                <input
-                  type="range"
-                  min="-40"
-                  max="12"
-                  step="1"
-                  value={volumes[track.id] ?? 0}
-                  onChange={(e) => handleVolumeChange(track.id, Number(e.target.value))}
-                  className="w-32 origin-center -rotate-90 appearance-none bg-white/10 rounded-full h-2 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-gradient-to-br [&::-webkit-slider-thumb]:from-purple-500 [&::-webkit-slider-thumb]:to-pink-500 [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-lg"
-                />
+                {/* dB readout under meter */}
+                <div className="text-[9px] font-mono text-blue-400 w-6 text-center">
+                  {level === -Infinity || level <= -60 ? '-∞' : level.toFixed(0)}
+                </div>
               </div>
 
-              {/* Volume display */}
-              <div className="text-xs font-mono text-white mb-3">
+              {/* Volume slider (rotated) */}
+              <input
+                type="range"
+                min="-40"
+                max="12"
+                step="1"
+                value={volumes[track.id] ?? 0}
+                onChange={(e) => handleVolumeChange(track.id, Number(e.target.value))}
+                className="w-24 origin-center -rotate-90 appearance-none bg-gray-700 rounded-full h-1.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-md"
+              />
+            </div>
+
+            {/* Volume display */}
+            <div className="text-[10px] font-mono text-white mb-2">
                 {mutes[track.id] || (Object.values(solos).some(s => s) && !solos[track.id])
                   ? "MUTE"
                   : `${volumes[track.id] ?? 0}dB`}
               </div>
 
               {/* Mute/Solo buttons */}
-              <div className="flex gap-2 mb-2">
+              <div className="flex gap-1.5 mb-1.5">
                 <button
                   onClick={() => toggleMute(track.id)}
-                  className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
+                  className={`px-2 py-0.5 text-[10px] font-bold rounded transition-all ${
                     mutes[track.id]
-                      ? "bg-red-500 text-white shadow-lg shadow-red-500/50"
-                      : "bg-white/10 text-gray-300 hover:bg-white/20"
+                      ? "bg-red-500 text-white"
+                      : "bg-gray-700 text-gray-300 hover:bg-gray-600"
                   }`}
                 >
                   M
                 </button>
                 <button
                   onClick={() => toggleSolo(track.id)}
-                  className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
+                  className={`px-2 py-0.5 text-[10px] font-bold rounded transition-all ${
                     solos[track.id]
-                      ? "bg-yellow-500 text-white shadow-lg shadow-yellow-500/50"
-                      : "bg-white/10 text-gray-300 hover:bg-white/20"
+                      ? "bg-yellow-500 text-white"
+                      : "bg-gray-700 text-gray-300 hover:bg-gray-600"
                   }`}
                 >
                   S
@@ -256,13 +250,12 @@ export function MixerPanel({ tracks, onVolumeChange }: MixerPanelProps) {
               </div>
 
               {/* Instrument name */}
-              <div className="text-xs text-gray-400 truncate w-full text-center">
+              <div className="text-[9px] text-gray-500 truncate w-full text-center">
                 {track.instrument?.split('/').pop() || "synth"}
               </div>
             </div>
           );
         })}
       </div>
-    </div>
-  );
-}
+    );
+  }

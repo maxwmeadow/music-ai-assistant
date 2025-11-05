@@ -250,9 +250,12 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
     return Math.max(max, trackDuration);
   }, 10);
 
+  // Add padding to ensure all notes are visible and scrollable
+  const totalWidth = (maxDuration + 4) * zoom; // Add 4 beats of padding
+
   return (
-      <div className="bg-gray-950 border border-white/10 rounded-xl overflow-hidden">
-        <div className="bg-gray-900 border-b border-white/10 p-4 flex items-center justify-between">
+      <div className="w-full h-full bg-gray-950 border border-white/10 rounded-xl overflow-hidden flex flex-col">
+        <div className="flex-none bg-gray-900 border-b border-white/10 p-4 flex items-center justify-between">
           <h3 className="text-white font-semibold">Timeline Editor</h3>
           <div className="flex items-center gap-4">
             <div className="text-xs text-gray-400">
@@ -299,7 +302,7 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
         </div>
 
         {/* Time ruler and track rows container */}
-        <div className="flex">
+        <div className="flex flex-1 overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-gray-900 [&::-webkit-scrollbar-thumb]:bg-gray-700 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border [&::-webkit-scrollbar-thumb]:border-gray-800 hover:[&::-webkit-scrollbar-thumb]:bg-gray-600">
           {/* Fixed track labels column */}
           <div className="flex-shrink-0">
             <div className="w-48 h-8 bg-gray-900 border-r border-white/10"></div>
@@ -312,8 +315,8 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
           </div>
 
           {/* Scrollable timeline area */}
-          <div className="flex-1 overflow-auto max-h-96" ref={timelineRef}>
-            <div style={{ width: `${maxDuration * zoom}px` }}>
+          <div className="flex-1 overflow-x-auto overflow-y-hidden [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-gray-900 [&::-webkit-scrollbar-thumb]:bg-gray-700 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border [&::-webkit-scrollbar-thumb]:border-gray-800 hover:[&::-webkit-scrollbar-thumb]:bg-gray-600" ref={timelineRef}>
+            <div style={{ width: `${totalWidth}px`, minWidth: `${totalWidth}px` }}>
               {/* Time ruler */}
               <div className="relative h-8 bg-gray-900 border-b border-white/10">
                 {(() => {
