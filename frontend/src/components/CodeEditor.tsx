@@ -14,11 +14,12 @@ export function CodeEditor({
 }) {
     const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
     const [showInstrumentPicker, setShowInstrumentPicker] = useState(false);
-    const [pickerPosition, setPickerPosition] = useState({ top: 0, left: 0 });
     const [currentLineNumber, setCurrentLineNumber] = useState<number | null>(null);
     const [currentInstrumentMatch, setCurrentInstrumentMatch] = useState<RegExpMatchArray | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
+    const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
     const pickerRef = useRef<HTMLDivElement>(null);
+    const buttonRef = useRef<HTMLButtonElement>(null);
 
     const instrumentsByCategory = getInstrumentsByCategory();
 
@@ -56,8 +57,22 @@ export function CodeEditor({
                 // Store the match for later use
                 setCurrentInstrumentMatch(instrumentMatch);
                 setCurrentLineNumber(lineNumber);
+            } else {
+                // Clear when moving away from an instrument line
+                setCurrentInstrumentMatch(null);
+                setCurrentLineNumber(null);
             }
         });
+    };
+
+    const toggleCategory = (category: string) => {
+        const newExpanded = new Set(expandedCategories);
+        if (newExpanded.has(category)) {
+            newExpanded.delete(category);
+        } else {
+            newExpanded.add(category);
+        }
+        setExpandedCategories(newExpanded);
     };
 
     const handleSelectInstrument = (instrument: Instrument) => {
@@ -85,6 +100,7 @@ export function CodeEditor({
 
         setShowInstrumentPicker(false);
         setSearchQuery("");
+        setExpandedCategories(new Set()); // Reset expanded categories
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -114,7 +130,7 @@ export function CodeEditor({
     useEffect(() => {
         if (!editorRef.current) return;
 
-        const disposable = editorRef.current.addCommand(
+        const commandId = editorRef.current.addCommand(
             2087, // Monaco.KeyMod.CtrlCmd | Monaco.KeyCode.KeyI
             () => {
                 const position = editorRef.current?.getPosition();
@@ -129,27 +145,31 @@ export function CodeEditor({
                 if (instrumentMatch) {
                     setCurrentLineNumber(position.lineNumber);
                     setCurrentInstrumentMatch(instrumentMatch);
-
-                    // Calculate position for picker
-                    const pos = editorRef.current.getScrolledVisiblePosition(position);
-                    if (pos) {
-                        setPickerPosition({
-                            top: pos.top + pos.height,
-                            left: pos.left,
-                        });
-                    }
-
                     setShowInstrumentPicker(true);
                 }
             }
         );
 
         return () => {
-            if (disposable) {
-                disposable.dispose();
+            if (commandId && editorRef.current) {
+                editorRef.current.removeCommand(commandId);
             }
         };
     }, []);
+
+    // Auto-expand categories when searching
+    useEffect(() => {
+        if (searchQuery.trim()) {
+            // Expand all categories that have matching instruments
+            const categoriesToExpand = new Set<string>();
+            Object.entries(filteredCategories).forEach(([category, instruments]) => {
+                if (instruments.length > 0) {
+                    categoriesToExpand.add(category);
+                }
+            });
+            setExpandedCategories(categoriesToExpand);
+        }
+    }, [searchQuery, filteredCategories]);
 
     return (
         <div className="relative h-full">
@@ -171,20 +191,8 @@ export function CodeEditor({
             {/* Floating button to open instrument picker */}
             {currentLineNumber !== null && currentInstrumentMatch && editorRef.current && (
                 <button
-                    onClick={() => {
-                        if (!editorRef.current) return;
-                        const position = editorRef.current.getPosition();
-                        if (!position) return;
-
-                        const pos = editorRef.current.getScrolledVisiblePosition(position);
-                        if (pos) {
-                            setPickerPosition({
-                                top: pos.top + pos.height,
-                                left: pos.left,
-                            });
-                        }
-                        setShowInstrumentPicker(true);
-                    }}
+                    ref={buttonRef}
+                    onClick={() => setShowInstrumentPicker(true)}
                     className="absolute top-2 right-2 bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded text-xs font-medium transition-colors z-10"
                     title="Change Instrument (Ctrl+I)"
                 >
@@ -193,13 +201,13 @@ export function CodeEditor({
             )}
 
             {/* Instrument Picker Dropdown */}
-            {showInstrumentPicker && (
+            {showInstrumentPicker && buttonRef.current && (
                 <div
                     ref={pickerRef}
-                    className="fixed bg-[#1e1e1e] border border-gray-700 rounded-lg shadow-2xl z-50 w-96 max-h-96 overflow-hidden flex flex-col"
+                    className="absolute bg-[#1e1e1e] border border-gray-700 rounded-lg shadow-2xl z-50 w-96 max-h-[500px] overflow-hidden flex flex-col"
                     style={{
-                        top: `${Math.min(pickerPosition.top, window.innerHeight - 420)}px`,
-                        left: `${Math.min(pickerPosition.left, window.innerWidth - 400)}px`,
+                        top: `${buttonRef.current.offsetTop + buttonRef.current.offsetHeight + 4}px`,
+                        right: '8px',
                     }}
                     onKeyDown={handleKeyDown}
                 >
@@ -215,8 +223,8 @@ export function CodeEditor({
                         />
                     </div>
 
-                    {/* Instrument list */}
-                    <div className="overflow-y-auto flex-1">
+                    {/* Instrument list with custom scrollbar */}
+                    <div className="overflow-y-auto flex-1 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-[#1e1e1e] [&::-webkit-scrollbar-thumb]:bg-gray-600 [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-thumb:hover]:bg-gray-500">
                         {Object.keys(filteredCategories).length === 0 ? (
                             <div className="p-4 text-gray-500 text-sm text-center">
                                 No instruments found
@@ -224,16 +232,26 @@ export function CodeEditor({
                         ) : (
                             Object.entries(filteredCategories).map(([category, instruments]) => (
                                 <div key={category}>
-                                    {/* Category header */}
-                                    <div className="sticky top-0 bg-[#2a2a2a] px-3 py-2 border-b border-gray-700">
-                                        <h3 className="text-xs font-bold text-gray-400 uppercase">{category}</h3>
-                                    </div>
-                                    {/* Instruments in category */}
-                                    {instruments.map((instrument) => (
+                                    {/* Category folder button */}
+                                    <button
+                                        onClick={() => toggleCategory(category)}
+                                        className="w-full text-left px-3 py-2 bg-[#252525] hover:bg-[#2a2a2a] border-b border-gray-700 flex items-center gap-2 transition-colors"
+                                    >
+                                        <span className="text-gray-400 text-xs">
+                                            {expandedCategories.has(category) ? '▼' : '▶'}
+                                        </span>
+                                        <h3 className="text-xs font-bold text-gray-300 uppercase flex-1">{category}</h3>
+                                        <span className="text-xs text-gray-500">
+                                            {instruments.length}
+                                        </span>
+                                    </button>
+
+                                    {/* Instruments in category (collapsible) */}
+                                    {expandedCategories.has(category) && instruments.map((instrument) => (
                                         <button
                                             key={instrument.path}
                                             onClick={() => handleSelectInstrument(instrument)}
-                                            className="w-full text-left px-4 py-2 hover:bg-[#2a2a2a] text-gray-300 text-sm transition-colors flex items-center justify-between group"
+                                            className="w-full text-left px-4 py-2 pl-8 hover:bg-[#2a2a2a] text-gray-300 text-sm transition-colors flex items-center justify-between group border-b border-gray-800"
                                         >
                                             <div className="flex-1 min-w-0">
                                                 <div className="font-medium text-white truncate">{instrument.name}</div>

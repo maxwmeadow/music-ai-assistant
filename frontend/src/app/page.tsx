@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { CodeEditor } from "@/components/CodeEditor";
 import { MixerPanel } from "@/components/MixerPanel";
 import { api } from "@/lib/api";
@@ -36,6 +36,10 @@ export default function Home() {
   const [showMixer, setShowMixer] = useState(false);
   const [showRecorder, setShowRecorder] = useState(false);
   const [recordingMode, setRecordingMode] = useState<'melody' | 'drums' | null>(null);
+
+  // Resizable panels
+  const [leftPanelWidth, setLeftPanelWidth] = useState(50); // percentage
+  const [isResizing, setIsResizing] = useState(false);
 
   const showToast = (message: string) => {
     setToast(message);
@@ -247,6 +251,37 @@ export default function Home() {
     setShowRecorder(true);
   };
 
+  // Handle resize drag
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  };
+
+  // Add/remove global mouse event listeners for resizing
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const newWidth = (e.clientX / window.innerWidth) * 100;
+      // Constrain between 20% and 80%
+      if (newWidth >= 20 && newWidth <= 80) {
+        setLeftPanelWidth(newWidth);
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing]);
+
   return (
     <div className="h-screen flex flex-col bg-[#1a1a1a] overflow-hidden">
       {/* Detection Tuner Modal */}
@@ -433,9 +468,12 @@ export default function Home() {
       </div>
 
       {/* Main Content Area - 2 Panel Layout */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden relative">
         {/* LEFT PANEL - Timeline */}
-        <div className="w-1/2 flex flex-col bg-[#1e1e1e] border-r border-gray-800 min-w-0">
+        <div
+          className="flex flex-col bg-[#1e1e1e] min-w-0"
+          style={{ width: `${leftPanelWidth}%` }}
+        >
           <div className="flex-none px-4 py-3 bg-[#252525] border-b border-gray-800">
             <h2 className="text-sm font-semibold text-gray-300">ARRANGEMENT</h2>
           </div>
@@ -460,8 +498,22 @@ export default function Home() {
           </div>
         </div>
 
+        {/* RESIZE BAR */}
+        <div
+          className={`w-1 bg-gray-800 hover:bg-blue-500 cursor-col-resize flex-shrink-0 relative group transition-colors ${
+            isResizing ? 'bg-blue-500' : ''
+          }`}
+          onMouseDown={handleMouseDown}
+        >
+          {/* Visual indicator on hover */}
+          <div className="absolute inset-y-0 -left-1 -right-1 group-hover:bg-blue-500/20" />
+        </div>
+
         {/* RIGHT PANEL - Code Editor */}
-        <div className="w-1/2 flex flex-col bg-[#1e1e1e] min-w-0">
+        <div
+          className="flex flex-col bg-[#1e1e1e] min-w-0"
+          style={{ width: `${100 - leftPanelWidth}%` }}
+        >
           <div className="flex-none px-4 py-3 bg-[#252525] border-b border-gray-800">
             <h2 className="text-sm font-semibold text-gray-300">CODE EDITOR</h2>
           </div>
