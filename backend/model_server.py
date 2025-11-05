@@ -175,7 +175,9 @@ class ModelServer:
                             pass
 
                     if track_notes:
-                        return Track(notes=track_notes)
+                        # Get instrument from audio_features or use default
+                        instrument = audio_features.get('instrument', 'piano/grand_piano_k')
+                        return Track(id='melody', instrument=instrument, notes=track_notes)
                     else:
                         print("[ModelServer.predict_melody]   ⚠️ No notes generated, using mock")
                         return self._mock_melody(audio_features)

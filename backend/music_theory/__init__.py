@@ -1,25 +1,25 @@
 """
 Music Theory Post-Processing Module
 
-Transforms raw model predictions into musically coherent melodies.
+Transforms hum2melody note predictions into musically coherent melodies.
 
 Pipeline (in order):
-1. Clean onsets/offsets (reduce over-prediction)
-2. Extract raw notes
-3. Detect tempo
-4. DETECT KEY FIRST (from raw, off-key notes)
-5. Quantize pitches to detected key
-6. Quantize rhythm to tempo grid
-7. Infer chord progression
+1. Convert hum2melody note format to internal format
+2. Detect tempo from note onset times
+3. Detect key (from raw, potentially off-key notes)
+4. Quantize pitches to detected key
+5. Quantize rhythm to tempo grid
+6. (Optional) Infer chord progression
 
-This module is the complete music theory layer that sits between
-raw ML predictions and the final musical IR.
+This module is the music theory layer that sits between
+hum2melody output and the final musical IR.
+
+Note: Onset/offset detection is now handled by the hum2melody model itself.
 """
 
 import numpy as np
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 
-from .onset_cleaner import OnsetOffsetCleaner
 from .tempo_detector import TempoDetector
 from .key_detector import KeyDetector
 from .pitch_quantizer import PitchQuantizer
@@ -27,142 +27,194 @@ from .rhythmic_quantizer import RhythmicQuantizer
 from .chord_analyzer import ChordAnalyzer
 
 
+def convert_hum2melody_to_internal(notes: List[Dict]) -> List[Dict]:
+    """
+    Convert hum2melody note format to internal music_theory format.
+
+    Hum2melody format:
+        {'start', 'end', 'duration', 'midi', 'note', 'confidence'}
+
+    Internal format:
+        {'pitch', 'start', 'duration', 'confidence'}
+
+    Args:
+        notes: List of notes from hum2melody predictor
+
+    Returns:
+        List of notes in internal format
+    """
+    internal_notes = []
+    for note in notes:
+        internal_notes.append({
+            'pitch': note['midi'],
+            'start': note['start'],
+            'duration': note['duration'],
+            'confidence': note['confidence']
+        })
+    return internal_notes
+
+
+def convert_internal_to_hum2melody(notes: List[Dict]) -> List[Dict]:
+    """
+    Convert internal music_theory format back to hum2melody format.
+
+    Internal format:
+        {'pitch', 'start', 'duration', 'confidence'}
+
+    Hum2melody format:
+        {'start', 'end', 'duration', 'midi', 'note', 'confidence'}
+
+    Args:
+        notes: List of notes in internal format
+
+    Returns:
+        List of notes in hum2melody format
+    """
+    import librosa
+
+    hum2melody_notes = []
+    for note in notes:
+        hum2melody_notes.append({
+            'start': note['start'],
+            'end': note['start'] + note['duration'],
+            'duration': note['duration'],
+            'midi': int(note['pitch']),
+            'note': librosa.midi_to_note(int(note['pitch'])),
+            'confidence': note['confidence']
+        })
+    return hum2melody_notes
+
+
 class MusicTheoryProcessor:
     """
-    Main facade for complete music theory post-processing pipeline.
+    Main facade for music theory post-processing pipeline.
 
-    Transforms raw model output into musically coherent melody with:
-    - Cleaned onsets/offsets (reduced over-prediction)
+    Transforms hum2melody predictions into musically coherent melody with:
     - Detected musical key
     - Pitch quantization (strict to scale)
     - Rhythmic quantization (to tempo grid)
-    - Inferred chord progression
+    - (Optional) Chord progression inference
+
+    Note: Onset/offset detection is handled by hum2melody model.
     """
 
-    def __init__(self):
+    def __init__(self, enable_chord_analysis: bool = False):
+        """
+        Initialize music theory processor.
+
+        Args:
+            enable_chord_analysis: Whether to enable chord progression inference
+        """
         print("\n" + "="*60)
         print("MUSIC THEORY PROCESSOR INITIALIZATION")
         print("="*60)
 
-        self.onset_cleaner = OnsetOffsetCleaner()
         self.tempo_detector = TempoDetector()
         self.key_detector = KeyDetector()
         self.pitch_quantizer = PitchQuantizer()
         self.rhythmic_quantizer = RhythmicQuantizer()
-        self.chord_analyzer = ChordAnalyzer()
+        self.enable_chord_analysis = enable_chord_analysis
+
+        if self.enable_chord_analysis:
+            self.chord_analyzer = ChordAnalyzer()
+            print("[ChordAnalyzer] Enabled")
+        else:
+            self.chord_analyzer = None
+            print("[ChordAnalyzer] Disabled")
 
         print("="*60)
-        print("✅ Music Theory Processor Ready")
+        print("[OK] Music Theory Processor Ready")
         print("="*60 + "\n")
 
     def process(
         self,
-        frame_probs: np.ndarray,    # (time_steps, 88)
-        onset_probs: np.ndarray,    # (time_steps,)
-        offset_probs: np.ndarray,   # (time_steps,)
-        frame_rate: float = 7.8125  # fps
+        notes: List[Dict],  # Notes from hum2melody in hum2melody format or internal format
+        input_format: str = "hum2melody"  # "hum2melody" or "internal"
     ) -> Dict:
         """
         Complete music theory processing pipeline.
 
         Pipeline (in order):
-        1. Clean onsets/offsets → reduce ~60-70%
-        2. Extract raw notes from cleaned events
-        3. Detect tempo from onset intervals
-        4. ⭐ DETECT KEY FIRST (from raw, potentially off-key notes)
-        5. Quantize pitches to detected key (strict)
-        6. Quantize rhythm to tempo grid
-        7. Infer chord progression from quantized melody
+        1. Convert note format if needed
+        2. Detect tempo from note onset times
+        3. Detect key (from raw, potentially off-key notes)
+        4. Quantize pitches to detected key (strict to scale)
+        5. Quantize rhythm to tempo grid
+        6. (Optional) Infer chord progression
 
         Args:
-            frame_probs: Frame-level pitch probabilities (time_steps, 88)
-            onset_probs: Onset probabilities (time_steps,)
-            offset_probs: Offset probabilities (time_steps,)
-            frame_rate: Model output frame rate (fps)
+            notes: List of notes from hum2melody predictor
+                   Can be in hum2melody format or internal format
+            input_format: "hum2melody" or "internal"
 
         Returns:
             {
-                "notes": List[Dict],  # Fully quantized notes
+                "notes": List[Dict],  # Fully quantized notes (hum2melody format)
                 "metadata": {
                     "key": str,               # "C major"
                     "tempo": float,           # BPM
                     "time_signature": str,    # "4/4"
-                    "grid_resolution": str    # "1/16"
+                    "grid_resolution": str,   # "1/16"
+                    "key_confidence": float,
+                    "tempo_confidence": float
                 },
-                "harmony": List[Dict]  # Chord progression
+                "harmony": List[Dict] | None  # Chord progression (if enabled)
             }
         """
         print("\n" + "="*60)
         print("MUSIC THEORY PROCESSING PIPELINE")
         print("="*60)
 
-        # ============================================================
-        # STEP 1 & 2: Clean onsets/offsets and extract notes
-        # ============================================================
-        print("\n[STEP 1-2] Cleaning onsets/offsets and extracting notes...")
-
-        cleaned_onsets = self.onset_cleaner.cluster_onsets(onset_probs, frame_rate)
-        onset_times = [t for t, _ in cleaned_onsets]
-        onset_confidences = [c for _, c in cleaned_onsets]
-
-        cleaned_offsets = self.onset_cleaner.cluster_offsets(
-            offset_probs,
-            onset_times,
-            frame_rate
-        )
-        offset_times = [t for t, _ in cleaned_offsets]
-        offset_confidences = [c for _, c in cleaned_offsets]
-
-        raw_notes = self.onset_cleaner.extract_notes_from_cleaned_events(
-            onset_times,
-            onset_confidences,
-            offset_times,
-            offset_confidences,
-            frame_probs,
-            frame_rate
-        )
-
-        if not raw_notes:
-            print("⚠️  No notes extracted - returning empty result")
+        if not notes:
+            print("⚠️  No notes provided - returning empty result")
             return self._empty_result()
 
-        print(f"✅ Extracted {len(raw_notes)} raw notes")
+        # ============================================================
+        # STEP 1: Convert note format if needed
+        # ============================================================
+        if input_format == "hum2melody":
+            print(f"\n[STEP 1] Converting {len(notes)} notes from hum2melody format...")
+            internal_notes = convert_hum2melody_to_internal(notes)
+        else:
+            print(f"\n[STEP 1] Using {len(notes)} notes in internal format...")
+            internal_notes = notes
 
         # ============================================================
-        # STEP 3: Detect tempo
+        # STEP 2: Detect tempo
         # ============================================================
-        print("\n[STEP 3] Detecting tempo...")
+        print("\n[STEP 2] Detecting tempo from onset times...")
 
+        onset_times = [note['start'] for note in internal_notes]
         tempo, tempo_confidence = self.tempo_detector.detect_tempo(onset_times)
 
-        print(f"✅ Tempo: {tempo:.1f} BPM (confidence: {tempo_confidence:.2f})")
+        print(f"[OK] Tempo: {tempo:.1f} BPM (confidence: {tempo_confidence:.2f})")
 
         # ============================================================
-        # STEP 4: ⭐ DETECT KEY FIRST (from raw, off-key notes)
+        # STEP 3: Detect key (from raw, off-key notes)
         # ============================================================
-        print("\n[STEP 4] ⭐ Detecting musical key (from raw notes)...")
+        print("\n[STEP 3] Detecting musical key from notes...")
 
-        key_root, mode, key_confidence = self.key_detector.detect_key(raw_notes)
+        key_root, mode, key_confidence = self.key_detector.detect_key(internal_notes)
 
-        print(f"✅ Key: {key_root} {mode} (confidence: {key_confidence:.2f})")
+        print(f"[OK] Key: {key_root} {mode} (confidence: {key_confidence:.2f})")
 
         # ============================================================
-        # STEP 5: Quantize pitches to detected key
+        # STEP 4: Quantize pitches to detected key
         # ============================================================
-        print("\n[STEP 5] Quantizing pitches to {key_root} {mode}...")
+        print(f"\n[STEP 4] Quantizing pitches to {key_root} {mode}...")
 
         pitch_quantized = self.pitch_quantizer.quantize_melody(
-            raw_notes,
+            internal_notes,
             key_root,
             mode
         )
 
-        print(f"✅ Pitches quantized to {key_root} {mode} scale")
+        print(f"[OK] Pitches quantized to {key_root} {mode} scale")
 
         # ============================================================
-        # STEP 6: Quantize rhythm to tempo grid
+        # STEP 5: Quantize rhythm to tempo grid
         # ============================================================
-        print("\n[STEP 6] Quantizing rhythm to tempo grid...")
+        print("\n[STEP 5] Quantizing rhythm to tempo grid...")
 
         # Determine appropriate grid resolution
         durations = [n['duration'] for n in pitch_quantized]
@@ -174,28 +226,34 @@ class MusicTheoryProcessor:
             grid_resolution
         )
 
-        print(f"✅ Rhythm quantized to {grid_resolution} grid at {tempo} BPM")
+        print(f"[OK] Rhythm quantized to {grid_resolution} grid at {tempo} BPM")
 
         # ============================================================
-        # STEP 7: Infer chord progression
+        # STEP 6: (Optional) Infer chord progression
         # ============================================================
-        print("\n[STEP 7] Inferring chord progression...")
+        chords = None
+        if self.enable_chord_analysis:
+            print("\n[STEP 6] Inferring chord progression...")
 
-        chords = self.chord_analyzer.infer_progression(
-            fully_quantized,
-            key_root,
-            mode,
-            tempo,
-            bars_per_chord=1.0
-        )
+            chords = self.chord_analyzer.infer_progression(
+                fully_quantized,
+                key_root,
+                mode,
+                tempo,
+                bars_per_chord=1.0
+            )
 
-        print(f"✅ Inferred {len(chords)} chord progression")
+            print(f"[OK] Inferred {len(chords)} chords")
+        else:
+            print("\n[STEP 6] Chord analysis disabled - skipping")
 
         # ============================================================
-        # Build result
+        # Build result (convert back to hum2melody format)
         # ============================================================
+        output_notes = convert_internal_to_hum2melody(fully_quantized)
+
         result = {
-            "notes": fully_quantized,
+            "notes": output_notes,
             "metadata": {
                 "key": f"{key_root} {mode}",
                 "tempo": float(tempo),
@@ -210,10 +268,11 @@ class MusicTheoryProcessor:
         print("\n" + "="*60)
         print("MUSIC THEORY PROCESSING COMPLETE")
         print("="*60)
-        print(f"  Key: {key_root} {mode}")
-        print(f"  Tempo: {tempo:.1f} BPM")
-        print(f"  Notes: {len(fully_quantized)}")
-        print(f"  Chords: {len(chords)}")
+        print(f"  Key: {key_root} {mode} (confidence: {key_confidence:.2f})")
+        print(f"  Tempo: {tempo:.1f} BPM (confidence: {tempo_confidence:.2f})")
+        print(f"  Notes: {len(output_notes)}")
+        if chords:
+            print(f"  Chords: {len(chords)}")
         print("="*60 + "\n")
 
         return result
@@ -237,12 +296,13 @@ class MusicTheoryProcessor:
 # Convenience exports
 __all__ = [
     'MusicTheoryProcessor',
-    'OnsetOffsetCleaner',
     'TempoDetector',
     'KeyDetector',
     'PitchQuantizer',
     'RhythmicQuantizer',
-    'ChordAnalyzer'
+    'ChordAnalyzer',
+    'convert_hum2melody_to_internal',
+    'convert_internal_to_hum2melody'
 ]
 
 
@@ -309,4 +369,4 @@ if __name__ == '__main__':
         "Should detect C major or A minor (relative)"
     assert len(result['notes']) > 0, "Should have notes"
 
-    print("\n✅ MusicTheoryProcessor integration test passed!")
+    print("\n[OK] MusicTheoryProcessor integration test passed!")

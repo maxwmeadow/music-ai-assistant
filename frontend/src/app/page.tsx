@@ -10,6 +10,8 @@ import { Mic, Music, Drum, Play, Square, Sparkles } from "lucide-react";
 import { Timeline } from "@/components/Timeline/Timeline";
 import { usePlaybackTime } from "@/hooks/usePlaybackTime";
 import { PianoRoll } from "@/components/PianoRoll/PianoRoll";
+import DetectionTuner from "@/components/DetectionTuner";
+import { compileIR, VisualizationData } from "@/lib/hum2melody-api";
 
 export default function Home() {
   const [code, setCode] = useState("// Your generated music code will appear here...");
@@ -23,6 +25,12 @@ export default function Home() {
   const [isPlaying, setIsPlaying] = useState(false);
   const currentTime = usePlaybackTime(isPlaying);
   const [selectedTrackForPianoRoll, setSelectedTrackForPianoRoll] = useState<string | null>(null);
+
+  // Detection Tuning State
+  const [tuningMode, setTuningMode] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [visualizationData, setVisualizationData] = useState<VisualizationData | null>(null);
+  const [currentIR, setCurrentIR] = useState<any>(null);
 
   const showToast = (message: string) => {
     setToast(message);
@@ -169,7 +177,34 @@ export default function Home() {
   };
 
   // NEW: Handle melody generation from recorder
-  const handleMelodyGenerated = async (ir: any) => {
+  const handleMelodyGenerated = async (result: any) => {
+    console.log("[DEBUG] handleMelodyGenerated called with:", result);
+    console.log("[DEBUG] Has visualization?", !!result.visualization);
+    console.log("[DEBUG] Has session_id?", !!result.session_id);
+
+    try {
+      // Check if we have visualization data (from hum2melody with return_visualization=true)
+      if (result.visualization && result.session_id) {
+        console.log("[DEBUG] Opening tuning modal with session:", result.session_id);
+        // Store data and open tuning modal
+        setSessionId(result.session_id);
+        setVisualizationData(result.visualization);
+        setCurrentIR(result.ir);
+        setTuningMode(true);
+        showToast("Tuning interface ready - adjust parameters to improve detection");
+      } else {
+        console.log("[DEBUG] No visualization data, using IR directly");
+        // No visualization data - use IR directly
+        await applyIRAndCompile(result.ir);
+      }
+    } catch (error) {
+      console.error("Failed to process melody:", error);
+      showToast("Failed to process melody");
+    }
+  };
+
+  // Apply IR and compile to DSL
+  const applyIRAndCompile = async (ir: any) => {
     showToast("Converting to DSL...");
 
     try {
@@ -189,18 +224,39 @@ export default function Home() {
         const parsedTracks = parseTracksFromDSL(data.dsl);
         setTracks(parsedTracks);
 
-        showToast("✅ Melody loaded! Click compile & play");
+        showToast("Melody loaded! Click compile & play");
       } else {
-        showToast("❌ Failed to convert to DSL");
+        showToast("Failed to convert to DSL");
       }
     } catch (error) {
       console.error("Failed to convert IR to DSL:", error);
-      showToast("❌ Conversion failed");
+      showToast("Conversion failed");
     }
+  };
+
+  // Handle tuning apply
+  const handleApplyTuning = async (finalIR: any) => {
+    setTuningMode(false);
+    await applyIRAndCompile(finalIR);
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+      {/* Detection Tuner Modal */}
+      {tuningMode && visualizationData && sessionId && currentIR && (
+        <DetectionTuner
+          sessionId={sessionId}
+          initialVisualization={visualizationData}
+          initialIR={currentIR}
+          onApply={handleApplyTuning}
+          onCancel={() => {
+            setTuningMode(false);
+            showToast("Tuning cancelled - using initial detection");
+            applyIRAndCompile(currentIR);
+          }}
+        />
+      )}
+
       {/* Toast */}
       {toast && (
         <div className="fixed top-6 right-6 bg-white/10 backdrop-blur-lg border border-white/20 text-white px-6 py-3 rounded-xl shadow-2xl z-50 animate-fade-in">

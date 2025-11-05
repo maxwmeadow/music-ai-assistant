@@ -13,6 +13,13 @@ from . import compiler_stub
 from .audio_processor import AudioProcessor
 from .model_server import ModelServer
 from .database import TrainingDataDB
+from .audio_session_manager import get_session_manager
+from .hum2melody_endpoints_v2 import (
+    hum_to_melody_v2,
+    get_segments,
+    reprocess_segments,
+    delete_session
+)
 
 USING_DOCKER=True
 
@@ -23,6 +30,7 @@ app = FastAPI(title="Music Backend", version="0.2.0")
 audio_processor = AudioProcessor(target_sr=16000)
 model_server = ModelServer()
 db = TrainingDataDB(db_path="training_data.db" if USING_DOCKER else "backend/training_data.db")
+session_manager = get_session_manager()  # Audio session manager for re-processing
 
 # Create audio storage directory
 AUDIO_STORAGE = Path("audio_uploads" if USING_DOCKER else "backend/audio_uploads")
@@ -182,6 +190,27 @@ This is just the hum2melody endpoint - replace only this function in your main.p
 
 @app.post("/hum2melody")
 async def hum_to_melody(
+        audio: UploadFile = File(...),
+        save_training_data: bool = Form(True),
+        instrument: str = Form("piano/grand_piano_k"),
+        onset_high: float = Form(0.30),
+        onset_low: float = Form(0.10),
+        offset_high: float = Form(0.30),
+        offset_low: float = Form(0.10),
+        min_confidence: float = Form(0.25),
+        return_visualization: bool = Form(True)
+):
+    """Enhanced hum2melody with interactive tuning support."""
+    return await hum_to_melody_v2(
+        model_server, audio, save_training_data, instrument,
+        onset_high, onset_low, offset_high, offset_low,
+        min_confidence, return_visualization
+    )
+
+
+# Original implementation kept as backup (can be removed later)
+@app.post("/hum2melody/legacy")
+async def hum_to_melody_legacy(
         audio: UploadFile = File(...),
         save_training_data: bool = Form(True),
         instrument: str = Form("piano/grand_piano_k")
@@ -487,3 +516,45 @@ async def submit_feedback(
     except Exception as e:
         print(f"Error saving feedback: {e}")
         raise HTTPException(status_code=500, detail=f"Error saving feedback: {str(e)}")
+
+
+# ============================================================
+# Interactive Tuning Endpoints
+# ============================================================
+
+@app.get("/hum2melody/segments/{session_id}")
+async def get_session_segments(session_id: str):
+    """Get current segment detection for a session."""
+    return await get_segments(session_id)
+
+
+@app.post("/hum2melody/reprocess")
+async def reprocess(
+    session_id: str = Form(...),
+    manual_onsets: str = Form(...),
+    manual_offsets: str = Form(...)
+):
+    """Reprocess audio with user-provided onset/offset markers."""
+    return await reprocess_segments(
+        model_server, session_id, manual_onsets, manual_offsets
+    )
+
+
+@app.delete("/hum2melody/session/{session_id}")
+async def delete_audio_session(session_id: str):
+    """Delete a session and clean up files."""
+    return await delete_session(session_id)
+
+
+# Cleanup task for expired sessions
+@app.on_event("startup")
+async def start_session_cleanup():
+    """Start background task to clean up expired sessions every hour."""
+    import asyncio
+    async def cleanup_loop():
+        while True:
+            await asyncio.sleep(3600)  # 1 hour
+            count = session_manager.cleanup_expired_sessions()
+            if count > 0:
+                print(f"[SessionCleanup] Removed {count} expired sessions")
+    asyncio.create_task(cleanup_loop())

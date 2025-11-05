@@ -89,10 +89,11 @@ export function RecorderControls({ onMelodyGenerated }: RecorderControlsProps = 
             // Convert blob to WAV format for best compatibility
             const { wav } = await processAudioBlob(lastBlob, 16000);
 
-            // Create form data
+            // Create form data with visualization request
             const formData = new FormData();
             formData.append("audio", wav, "recording.wav");
             formData.append("save_training_data", "true");
+            formData.append("return_visualization", "true");
 
             setStatus("Sending to model...");
 
@@ -109,20 +110,25 @@ export function RecorderControls({ onMelodyGenerated }: RecorderControlsProps = 
 
             const result = await response.json();
 
-            console.log("Model result:", result);
+            console.log("[RecorderControls] Model result:", result);
+            console.log("[RecorderControls] Has visualization?", !!result.visualization);
+            console.log("[RecorderControls] Has session_id?", !!result.session_id);
+            console.log("[RecorderControls] Has ir?", !!result.ir);
 
-            setStatus(`✅ Generated ${result.metadata?.num_notes || 0} notes (${result.metadata?.model_used || 'unknown'} model)`);
+            const noteCount = result.metadata?.num_notes || result.visualization?.segments?.length || 0;
+            setStatus(`Generated ${noteCount} notes (${result.metadata?.model_used || 'unknown'} model)`);
 
-            // Callback with the IR data
-            if (onMelodyGenerated && result.ir) {
-                onMelodyGenerated(result.ir);
+            // Callback with the full result (includes IR, visualization, session_id)
+            if (onMelodyGenerated) {
+                console.log("[RecorderControls] Calling onMelodyGenerated with result");
+                onMelodyGenerated(result);
             }
 
             setBusy(false);
 
         } catch (err) {
             console.error("Failed to process audio:", err);
-            setStatus(`❌ Failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            setStatus(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
             setBusy(false);
         }
     };
