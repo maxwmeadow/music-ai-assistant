@@ -7,7 +7,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - REACT_APP_BACKEND_URL=http://localhost:8000
+      - NEXT_PUBLIC_API_URL=http://backend:8000
     command: npm run dev
     volumes:
       - ./frontend:/app
@@ -23,7 +23,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - ALLOWED_ORIGINS=http://localhost:3000
+      - ALLOWED_ORIGINS=http://localhost:3000,http://frontend:3000
       - RUNNER_INGEST_URL=http://runner:5001/eval
       - RUNNER_INBOX_PATH=
       - REQUEST_TIMEOUT_S=3
