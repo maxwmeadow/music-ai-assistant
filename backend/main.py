@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, JSONResponse
 from pathlib import Path
@@ -61,8 +61,33 @@ app.add_middleware(
     allow_origins=settings.allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
-    allow_credentials=True
+    allow_credentials=True,
+    expose_headers=["*"]
 )
+
+# Global exception handler to ensure CORS headers even on errors
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Catch all unhandled exceptions and return JSON with CORS headers"""
+    import traceback
+    error_detail = str(exc)
+    error_traceback = traceback.format_exc()
+
+    print(f"[GLOBAL EXCEPTION HANDLER] Caught exception: {error_detail}")
+    print(f"[GLOBAL EXCEPTION HANDLER] Traceback:\n{error_traceback}")
+
+    return JSONResponse(
+        status_code=500,
+        content={
+            "status": "error",
+            "detail": error_detail,
+            "type": type(exc).__name__
+        },
+        headers={
+            "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
+            "Access-Control-Allow-Credentials": "true"
+        }
+    )
 
 runner = RunnerClient(
     ingest_url=settings.runner_ingest_url,
@@ -113,7 +138,17 @@ async def save_audio_file(
 
 @app.get("/health")
 def health():
-    return {"ok": True, "version": app.version}
+    """Health check with model loading status"""
+    model_status = {
+        "loaded": model_server.predictor is not None,
+        "loading_attempted": model_server._model_loading_attempted,
+        "checkpoint_exists": model_server.checkpoint_path.exists()
+    }
+    return {
+        "ok": True,
+        "version": app.version,
+        "model": model_status
+    }
 
 
 @app.get("/stats")

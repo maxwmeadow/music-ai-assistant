@@ -58,10 +58,14 @@ class ModelServer:
     Now integrates the trained model if available, but falls back to mock logic.
     """
 
-    def __init__(self):
-        """Initialize model server with lazy loading to save memory"""
+    def __init__(self, preload: bool = True):
+        """Initialize model server with optional preloading
+
+        Args:
+            preload: If True, load model immediately. If False, lazy-load on first use.
+        """
         print("[ModelServer.__init__] ========================================")
-        print("[ModelServer.__init__] Initializing ModelServer (LAZY LOADING MODE)")
+        print(f"[ModelServer.__init__] Initializing ModelServer (preload={preload})")
 
         # Store checkpoint path but don't load the model yet
         self.checkpoint_path = Path("hum2melody/checkpoints/combined_hum2melody_full.pth")
@@ -73,7 +77,7 @@ class ModelServer:
             size_mb = self.checkpoint_path.stat().st_size / (1024 * 1024)
             print(f"[ModelServer.__init__]   Checkpoint size: {size_mb:.1f} MB")
 
-        # Model will be loaded on first use (lazy loading)
+        # Model will be loaded on first use (lazy loading) or immediately if preload=True
         self.predictor = None
         self._model_loading_attempted = False
 
@@ -81,7 +85,11 @@ class ModelServer:
         self.c_major_scale = [60, 62, 64, 65, 67, 69, 71, 72]
         self.a_minor_scale = [57, 59, 60, 62, 64, 65, 67, 69]
 
-        print("[ModelServer.__init__] ✅ Initialized with lazy loading (model will load on first use)")
+        if preload:
+            print("[ModelServer.__init__] Preloading model on startup...")
+            self._ensure_model_loaded()
+
+        print("[ModelServer.__init__] ✅ Initialized")
         print("[ModelServer.__init__] ========================================")
 
     def _ensure_model_loaded(self):
