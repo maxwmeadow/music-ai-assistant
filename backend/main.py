@@ -20,6 +20,8 @@ from .hum2melody_endpoints_v2 import (
     reprocess_segments,
     delete_session
 )
+from .job_manager import get_job_manager, JobStatus
+import asyncio
 
 USING_DOCKER=True
 
@@ -31,6 +33,7 @@ audio_processor = AudioProcessor(target_sr=16000)
 model_server = ModelServer()
 db = TrainingDataDB(db_path="training_data.db" if USING_DOCKER else "backend/training_data.db")
 session_manager = get_session_manager()  # Audio session manager for re-processing
+job_manager = get_job_manager()  # Job manager for async processing
 
 # Create audio storage directory
 AUDIO_STORAGE = Path("audio_uploads" if USING_DOCKER else "backend/audio_uploads")
@@ -161,6 +164,31 @@ def get_stats():
         raise HTTPException(status_code=500, detail=f"Error getting stats: {str(e)}")
 
 
+@app.get("/jobs/{job_id}")
+def get_job_status(job_id: str):
+    """
+    Poll job status for async processing.
+
+    Returns:
+        - status: pending, processing, completed, or failed
+        - result: If completed, contains the full response
+        - error: If failed, contains error message
+        - progress: 0-100 progress indicator
+    """
+    job = job_manager.get_job(job_id)
+
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    return JSONResponse(content=job.to_dict())
+
+
+@app.get("/jobs")
+def list_jobs():
+    """Get statistics about all jobs"""
+    return JSONResponse(content=job_manager.get_stats())
+
+
 @app.get("/test", response_class=PlainTextResponse)
 def test():
     print("TEST ENDPOINT CALLED")
@@ -233,14 +261,88 @@ async def hum_to_melody(
         offset_high: float = Form(0.30),
         offset_low: float = Form(0.10),
         min_confidence: float = Form(0.25),
-        return_visualization: bool = Form(False)  # Default False for production performance
+        return_visualization: bool = Form(False),  # Default False for production performance
+        async_mode: bool = Form(False)  # New: Enable async processing for long requests
 ):
-    """Enhanced hum2melody with interactive tuning support."""
-    return await hum_to_melody_v2(
-        model_server, audio, save_training_data, instrument,
-        onset_high, onset_low, offset_high, offset_low,
-        min_confidence, return_visualization
-    )
+    """
+    Enhanced hum2melody with interactive tuning support.
+
+    Args:
+        async_mode: If True, returns job_id immediately and processes in background.
+                   Use /jobs/{job_id} to poll for results.
+    """
+    if async_mode:
+        # Read audio bytes immediately (before background task)
+        audio_bytes = await audio.read()
+        original_filename = audio.filename or "recording.wav"
+        content_type = audio.content_type
+
+        # Create job and process in background
+        job_id = job_manager.create_job()
+
+        # Start background task
+        async def process_in_background():
+            try:
+                job_manager.update_status(job_id, JobStatus.PROCESSING, progress=10)
+
+                # Save audio to temporary file
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                file_extension = Path(original_filename).suffix or ".wav"
+                filename = f"hum2melody_{timestamp}_{job_id[:8]}{file_extension}"
+                file_path = AUDIO_STORAGE / filename
+
+                print(f"[ASYNC HUM2MELODY] Saving audio for job {job_id}: {file_path}")
+                with file_path.open("wb") as f:
+                    f.write(audio_bytes)
+
+                # Create a mock UploadFile for processing
+                from io import BytesIO
+                from fastapi import UploadFile
+
+                audio_file = UploadFile(
+                    file=BytesIO(audio_bytes),
+                    filename=original_filename,
+                    headers={"content-type": content_type}
+                )
+
+                # Process the audio
+                result = await hum_to_melody_v2(
+                    model_server, audio_file, save_training_data, instrument,
+                    onset_high, onset_low, offset_high, offset_low,
+                    min_confidence, return_visualization
+                )
+
+                # Extract result content
+                if hasattr(result, 'body'):
+                    import json
+                    result_data = json.loads(result.body.decode())
+                else:
+                    result_data = result
+
+                # Store result
+                job_manager.set_result(job_id, result_data)
+
+            except Exception as e:
+                print(f"[ASYNC HUM2MELODY] Job {job_id} failed: {e}")
+                import traceback
+                traceback.print_exc()
+                job_manager.set_error(job_id, str(e))
+
+        # Schedule background task
+        asyncio.create_task(process_in_background())
+
+        return JSONResponse(content={
+            "status": "accepted",
+            "job_id": job_id,
+            "message": "Processing in background. Poll /jobs/{job_id} for results."
+        }, status_code=202)
+    else:
+        # Synchronous processing (original behavior)
+        return await hum_to_melody_v2(
+            model_server, audio, save_training_data, instrument,
+            onset_high, onset_low, offset_high, offset_low,
+            min_confidence, return_visualization
+        )
 
 
 # Original implementation kept as backup (can be removed later)
@@ -581,15 +683,22 @@ async def delete_audio_session(session_id: str):
     return await delete_session(session_id)
 
 
-# Cleanup task for expired sessions
+# Cleanup task for expired sessions and jobs
 @app.on_event("startup")
-async def start_session_cleanup():
-    """Start background task to clean up expired sessions every hour."""
-    import asyncio
+async def start_cleanup_tasks():
+    """Start background tasks to clean up expired sessions and jobs every hour."""
     async def cleanup_loop():
         while True:
             await asyncio.sleep(3600)  # 1 hour
-            count = session_manager.cleanup_expired_sessions()
-            if count > 0:
-                print(f"[SessionCleanup] Removed {count} expired sessions")
+
+            # Clean up expired sessions
+            session_count = session_manager.cleanup_expired_sessions()
+            if session_count > 0:
+                print(f"[SessionCleanup] Removed {session_count} expired sessions")
+
+            # Clean up expired jobs
+            job_count = job_manager.cleanup_expired(max_age_hours=1)
+            if job_count > 0:
+                print(f"[JobCleanup] Removed {job_count} expired jobs")
+
     asyncio.create_task(cleanup_loop())
