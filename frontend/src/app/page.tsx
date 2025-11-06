@@ -6,9 +6,8 @@ import { MixerPanel } from "@/components/MixerPanel";
 import { api } from "@/lib/api";
 import { RecorderControls } from "@/components/RecorderControls";
 import { parseTracksFromDSL, ParsedTrack } from "@/lib/dslParser";
-import { Mic, Music, Drum, Play, Square, Sparkles, Sliders, Piano, ChevronDown, ChevronUp, Undo, Redo } from "lucide-react";
+import { Mic, Music, Drum, Play, Square, Sparkles, Sliders, Piano, ChevronDown, Undo, Redo } from "lucide-react";
 import { Timeline } from "@/components/Timeline/Timeline";
-import { usePlaybackTime } from "@/hooks/usePlaybackTime";
 import { PianoRoll } from "@/components/PianoRoll/PianoRoll";
 import DetectionTuner from "@/components/DetectionTuner";
 import { compileIR, VisualizationData } from "@/lib/hum2melody-api";
@@ -34,7 +33,8 @@ export default function Home() {
   const [tracks, setTracks] = useState<ParsedTrack[]>([]);
   const [trackVolumes, setTrackVolumes] = useState<Record<string, number>>({});
   const [isPlaying, setIsPlaying] = useState(false);
-  const currentTime = usePlaybackTime(isPlaying);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
   const [selectedTrackForPianoRoll, setSelectedTrackForPianoRoll] = useState<string | null>(null);
 
   // Detection Tuning State
@@ -55,6 +55,38 @@ export default function Home() {
   const showToast = (message: string) => {
     setToast(message);
     setTimeout(() => setToast(null), 3000);
+  };
+
+  // Calculate the maximum duration of the current music from DSL code
+  const calculateMaxDuration = (): number => {
+    let maxDuration = 0;
+    const trackRegex = /track\("([^"]+)"\)\s*\{([^}]+)\}/g;
+    let trackMatch;
+
+    while ((trackMatch = trackRegex.exec(code)) !== null) {
+      const trackContent = trackMatch[2];
+      const noteRegex = /note\("([^"]+)",\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g;
+      let noteMatch;
+
+      while ((noteMatch = noteRegex.exec(trackContent)) !== null) {
+        const start = parseFloat(noteMatch[2]);
+        const duration = parseFloat(noteMatch[3]);
+        const endTime = start + duration;
+        maxDuration = Math.max(maxDuration, endTime);
+      }
+
+      const chordRegex = /chord\(\[([^\]]+)\],\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g;
+      let chordMatch;
+
+      while ((chordMatch = chordRegex.exec(trackContent)) !== null) {
+        const start = parseFloat(chordMatch[1]);
+        const duration = parseFloat(chordMatch[2]);
+        const endTime = start + duration;
+        maxDuration = Math.max(maxDuration, endTime);
+      }
+    }
+
+    return maxDuration;
   };
 
   const fetchTest = async () => {
@@ -86,15 +118,80 @@ export default function Home() {
       });
 
       const data = await response.json();
-      setExecutableCode(data.meta?.executable_code || "");
+      const execCode = data.meta?.executable_code || "";
+      setExecutableCode(execCode);
 
       const parsedTracks = parseTracksFromDSL(code);
       setTracks(parsedTracks);
+
+      // Preload audio samples by evaluating the code without starting playback
+      if (execCode) {
+        setIsLoadingAudio(true);
+        (window as any).__isPreloading = true; // Flag to prevent console interceptor from clearing loading
+        try {
+          const Tone = await import('tone');
+          (window as any).Tone = Tone;
+          (window as any).__trackVolumes = trackVolumes;
+
+          // Stop any existing playback before preloading
+          if (Tone.Transport.state === 'started') {
+            Tone.Transport.stop();
+          }
+          Tone.Transport.seconds = 0;
+          setCurrentTime(0);
+          setIsPlaying(false);
+
+          // Temporarily replace Transport.start() to prevent autoplay during preload
+          const originalStart = Tone.Transport.start;
+          let startWasCalled = false;
+          Tone.Transport.start = function(...args: any[]) {
+            console.log('[Compile] Intercepted Transport.start() - blocking during preload');
+            startWasCalled = true;
+            return Tone.Transport as any; // Return this for chaining
+          };
+
+          try {
+            // Evaluate the code to trigger sample loading
+            // Transport.start() is now a no-op, so no playback occurs
+            eval(execCode);
+          } finally {
+            // Restore original Transport.start()
+            Tone.Transport.start = originalStart;
+
+            // Force stop transport after restoring start()
+            // This ensures no scheduled events trigger playback
+            if (Tone.Transport.state !== 'stopped') {
+              Tone.Transport.stop();
+            }
+            Tone.Transport.seconds = 0;
+            Tone.Transport.cancel(); // Cancel all scheduled events
+          }
+
+          console.log(`[Compile] Sample preload complete. Transport.start was ${startWasCalled ? 'called and blocked' : 'not called'}`);
+
+          // Mark samples as preloaded
+          (window as any).__samplesPreloaded = true;
+
+          // Now trigger actual sample loading by starting the Transport briefly
+          // This will cause "[Music] Playing..." to be logged when samples are ready
+          console.log('[Compile] Initiating sample loading...');
+          Tone.Transport.start();
+
+          // The loading state will be cleared by the console.log interceptor
+          // when it detects "[Music] Playing..." message
+          // The __isPreloading flag will be cleared at that time too
+        } catch (preloadError) {
+          console.error('[Compile] Preload error:', preloadError);
+          (window as any).__isPreloading = false;
+          setIsLoadingAudio(false);
+        }
+      }
 
       showToast("Code compiled successfully");
     } catch (error) {
       console.error(error);
       showToast("Compilation failed");
+      setIsLoadingAudio(false);
     } finally {
       setLoadingRun(false);
     }
@@ -121,6 +218,18 @@ export default function Home() {
       return;
     }
 
+    // Don't allow play while audio is still loading
+    if (isLoadingAudio) {
+      showToast("Audio is still loading...");
+      return;
+    }
+
+    // Clear any existing auto-stop timeout before starting
+    if ((window as any).__autoStopTimeout) {
+      clearTimeout((window as any).__autoStopTimeout);
+      (window as any).__autoStopTimeout = null;
+    }
+
     setLoadingPlay(true);
     setIsPlaying(true);
     try {
@@ -128,7 +237,28 @@ export default function Home() {
       (window as any).Tone = Tone;
       (window as any).__trackVolumes = trackVolumes;
 
-      eval(executableCode);
+      // Check if we're resuming from pause or starting fresh
+      const currentPosition = Tone.Transport.seconds;
+      const isResuming = currentPosition > 0 && Tone.Transport.state === 'paused';
+
+      // Check if samples are already loaded (preloaded during compile)
+      const samplesPreloaded = (window as any).__samplesPreloaded;
+
+      if (!isResuming && !samplesPreloaded) {
+        // Set loading state before eval (only if not preloaded)
+        setIsLoadingAudio(true);
+
+        // Only eval code if starting fresh and not preloaded
+        eval(executableCode);
+
+        // Mark as preloaded
+        (window as any).__samplesPreloaded = true;
+
+        // Loading will be cleared when "Playing..." is logged
+      }
+
+      // Start or resume transport
+      Tone.Transport.start();
 
       setTimeout(() => {
         Object.entries(trackVolumes).forEach(([trackId, volume]) => {
@@ -136,45 +266,22 @@ export default function Home() {
         });
       }, 100);
 
-      const tempoMatch = code.match(/tempo\((\d+)\)/);
-      const tempo = tempoMatch ? parseInt(tempoMatch[1]) : 120;
-
-      let maxDuration = 0;
-      const trackRegex = /track\("([^"]+)"\)\s*\{([^}]+)\}/g;
-      let trackMatch;
-
-      while ((trackMatch = trackRegex.exec(code)) !== null) {
-        const trackContent = trackMatch[2];
-        const noteRegex = /note\("([^"]+)",\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g;
-        let noteMatch;
-
-        while ((noteMatch = noteRegex.exec(trackContent)) !== null) {
-          const start = parseFloat(noteMatch[2]);
-          const duration = parseFloat(noteMatch[3]);
-          const endTime = start + duration;
-          maxDuration = Math.max(maxDuration, endTime);
-        }
-
-        const chordRegex = /chord\(\[[^\]]+\],\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g;
-        let chordMatch;
-
-        while ((chordMatch = chordRegex.exec(trackContent)) !== null) {
-          const start = parseFloat(chordMatch[1]);
-          const duration = parseFloat(chordMatch[2]);
-          const endTime = start + duration;
-          maxDuration = Math.max(maxDuration, endTime);
-        }
-      }
-
+      const maxDuration = calculateMaxDuration();
       console.log(`[Playback] Calculated duration: ${maxDuration.toFixed(2)}s`);
 
+      // Calculate remaining time from current position
+      const remainingTime = Math.max(0, maxDuration - currentPosition);
+
       const stopTimeout = setTimeout(() => {
-        stopAudio();
-      }, (maxDuration + 1.5) * 1000);
+        // Only auto-stop if still playing (not manually paused)
+        if (Tone.Transport.state === 'started') {
+          stopAudio();
+        }
+      }, (remainingTime + 1.5) * 1000);
 
       (window as any).__autoStopTimeout = stopTimeout;
 
-      showToast(`Playing (${maxDuration.toFixed(1)}s)...`);
+      showToast(isResuming ? 'Resumed' : `Playing (${maxDuration.toFixed(1)}s)...`);
     } catch (error) {
       console.error(error);
       showToast("Playback error");
@@ -187,14 +294,142 @@ export default function Home() {
   const stopAudio = () => {
     if ((window as any).__autoStopTimeout) {
       clearTimeout((window as any).__autoStopTimeout);
+      (window as any).__autoStopTimeout = null;
     }
 
-    if ((window as any).__musicControls?.stop) {
-      (window as any).__musicControls.stop();
+    // Use pause instead of stop to preserve playhead position
+    if ((window as any).Tone?.Transport) {
+      const wasPlaying = (window as any).Tone.Transport.state === 'started';
+      (window as any).Tone.Transport.pause();
+      setIsPlaying(false);
+      if (wasPlaying) {
+        showToast("Paused");
+      }
+    }
+  };
+
+  const resetAudio = () => {
+    if ((window as any).__autoStopTimeout) {
+      clearTimeout((window as any).__autoStopTimeout);
+      (window as any).__autoStopTimeout = null;
+    }
+
+    if ((window as any).Tone?.Transport) {
+      (window as any).Tone.Transport.stop();
+      (window as any).Tone.Transport.seconds = 0;
+      setCurrentTime(0);
       setIsPlaying(false);
       showToast("Stopped");
     }
   };
+
+  const handleSeek = (time: number) => {
+    // Don't allow seeking while audio is loading
+    if (isLoadingAudio) {
+      return;
+    }
+
+    if ((window as any).Tone?.Transport) {
+      (window as any).Tone.Transport.seconds = time;
+      setCurrentTime(time);
+
+      // If playing, recalculate the auto-stop timeout
+      if (isPlaying && (window as any).Tone.Transport.state === 'started') {
+        // Clear existing timeout
+        if ((window as any).__autoStopTimeout) {
+          clearTimeout((window as any).__autoStopTimeout);
+        }
+
+        // Calculate remaining time from new position
+        const maxDuration = calculateMaxDuration();
+        const remainingTime = Math.max(0, maxDuration - time);
+
+        console.log(`[Seek] Recalculating timeout: ${remainingTime.toFixed(2)}s remaining from position ${time.toFixed(2)}s`);
+
+        // Set new timeout
+        const stopTimeout = setTimeout(() => {
+          if ((window as any).Tone?.Transport.state === 'started') {
+            stopAudio();
+          }
+        }, (remainingTime + 1.5) * 1000);
+
+        (window as any).__autoStopTimeout = stopTimeout;
+      }
+    }
+  };
+
+  // Poll Tone.js transport time continuously
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if ((window as any).Tone?.Transport) {
+        const transportTime = (window as any).Tone.Transport.seconds;
+        setCurrentTime(transportTime);
+      }
+      // Don't reset to 0 - let the last known position persist
+    }, isPlaying ? 50 : 100); // Poll faster when playing
+
+    return () => clearInterval(interval);
+  }, [isPlaying]);
+
+  // Listen for audio loading events
+  useEffect(() => {
+    const handleAudioReady = () => {
+      console.log('[Timeline] Audio ready event received');
+      setIsLoadingAudio(false);
+    };
+
+    const handlePlaybackComplete = () => {
+      console.log('[Timeline] Playback complete event received');
+      setIsLoadingAudio(false);
+    };
+
+    window.addEventListener('audioReady', handleAudioReady);
+    window.addEventListener('playbackComplete', handlePlaybackComplete);
+
+    return () => {
+      window.removeEventListener('audioReady', handleAudioReady);
+      window.removeEventListener('playbackComplete', handlePlaybackComplete);
+    };
+  }, []);
+
+  // Also intercept console.log as fallback to detect audio loading events
+  useEffect(() => {
+    const originalLog = console.log;
+
+    console.log = function(...args: any[]) {
+      // Call original console.log
+      originalLog.apply(console, args);
+
+      // Check for specific messages
+      const message = args.join(' ');
+
+      // Check if we're in preload mode
+      const isPreloading = (window as any).__isPreloading;
+
+      if (message.includes('[Music] Playing...')) {
+        if (isPreloading) {
+          // We're in preload mode - stop the Transport immediately
+          console.log('[Compile] Samples loaded, stopping preload playback');
+          if ((window as any).Tone?.Transport) {
+            (window as any).Tone.Transport.stop();
+            (window as any).Tone.Transport.seconds = 0;
+          }
+          // Clear preloading flag and loading state
+          (window as any).__isPreloading = false;
+          setIsLoadingAudio(false);
+        } else {
+          // Normal playback mode
+          setIsLoadingAudio(false);
+        }
+      } else if (message.includes('[Music] Playback complete') && !isPreloading) {
+        setIsLoadingAudio(false);
+      }
+    };
+
+    return () => {
+      console.log = originalLog;
+    };
+  }, []);
 
   const handleMelodyGenerated = async (result: any) => {
     console.log("[DEBUG] handleMelodyGenerated called with:", result);
@@ -293,7 +528,7 @@ export default function Home() {
     };
   }, [isResizing]);
 
-  // Keyboard shortcuts for undo/redo and help
+  // Keyboard shortcuts for undo/redo, play/pause, and help
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Check if we're in an input/textarea (don't trigger shortcuts while typing)
@@ -304,6 +539,16 @@ export default function Home() {
 
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
+
+      // Play/Pause: Space
+      if (e.key === ' ' && !ctrlOrCmd) {
+        e.preventDefault();
+        if (isPlaying) {
+          stopAudio();
+        } else {
+          playAudio();
+        }
+      }
 
       // Show keyboard shortcuts: ?
       if (e.key === '?' && !ctrlOrCmd) {
@@ -328,7 +573,7 @@ export default function Home() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo]);
+  }, [undo, redo, isPlaying, isLoadingAudio, executableCode, playAudio, stopAudio]);
 
   return (
     <div className="h-screen flex flex-col bg-[#1a1a1a] overflow-hidden">
@@ -435,17 +680,18 @@ export default function Home() {
         <div className="flex items-center gap-2 border-r border-gray-700 pr-4">
           {!isPlaying ? (
             <button
-              disabled={loadingPlay || !executableCode}
+              disabled={loadingPlay || !executableCode || isLoadingAudio}
               onClick={playAudio}
               className="flex items-center justify-center w-10 h-10 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg transition-colors"
-              title="Play (Space)"
+              title={isLoadingAudio ? "Loading audio..." : "Play (Space)"}
             >
               <Play className="w-5 h-5" />
             </button>
           ) : (
             <button
               onClick={stopAudio}
-              className="flex items-center justify-center w-10 h-10 bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors"
+              disabled={isLoadingAudio}
+              className="flex items-center justify-center w-10 h-10 bg-red-600 hover:bg-red-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg transition-colors"
               title="Stop (Space)"
             >
               <Square className="w-5 h-5" />
@@ -559,6 +805,8 @@ export default function Home() {
                 onCodeChange={setCode}
                 isPlaying={isPlaying}
                 currentTime={currentTime}
+                onSeek={handleSeek}
+                isLoading={isLoadingAudio}
               />
             ) : (
               <div className="h-full flex items-center justify-center text-gray-500">
