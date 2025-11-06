@@ -2,13 +2,18 @@ FROM node:18-slim
 
 WORKDIR /app
 
+# Copy package files
 COPY package*.json ./
-RUN npm install
 
+# Install dependencies
+RUN npm ci --only=production=false
+
+# Copy source files
 COPY . .
 
-EXPOSE 3000
+# Build the application
+RUN npx next build --turbopack
 
-RUN npm run build
+EXPOSE 3000
 
 CMD ["npm", "start"]
