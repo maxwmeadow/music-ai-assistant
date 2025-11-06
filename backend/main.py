@@ -233,7 +233,7 @@ async def hum_to_melody(
         offset_high: float = Form(0.30),
         offset_low: float = Form(0.10),
         min_confidence: float = Form(0.25),
-        return_visualization: bool = Form(True)
+        return_visualization: bool = Form(False)  # Default False for production performance
 ):
     """Enhanced hum2melody with interactive tuning support."""
     return await hum_to_melody_v2(

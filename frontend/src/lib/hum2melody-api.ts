@@ -98,7 +98,8 @@ export async function uploadWithVisualization(
   formData.append('audio', audioBlob, 'recording.wav');
   formData.append('instrument', options.instrument || 'piano/grand_piano_k');
   formData.append('save_training_data', String(options.saveTrainingData !== false));
-  formData.append('return_visualization', String(options.returnVisualization !== false));
+  // Default to false in production for better performance
+  formData.append('return_visualization', String(options.returnVisualization === true));
 
   // Add detection parameters
   formData.append('onset_high', String(params.onsetHigh ?? 0.30));
