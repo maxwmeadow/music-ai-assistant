@@ -1,0 +1,44 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_BACKEND_URL=http://localhost:8000
+    command: npm run dev
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: backend
+    ports:
+      - "8000:8000"
+    environment:
+      - ALLOWED_ORIGINS=http://localhost:3000
+      - RUNNER_INGEST_URL=http://runner:5001/eval
+      - RUNNER_INBOX_PATH=
+      - REQUEST_TIMEOUT_S=3
+      - PYTHONPATH=/app
+    volumes:
+      - ./backend:/app/backend
+    depends_on:
+      - runner
+
+  runner:
+    build:
+      context: ./runner
+      dockerfile: Dockerfile
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./runner:/app
+      - /app/node_modules
