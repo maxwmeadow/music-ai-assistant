@@ -11,8 +11,8 @@ RUN npm install
 # Copy source files
 COPY . .
 
-# Build the application
-RUN npx next build --turbopack
+# Build the application (removing --turbopack as it's dev-only)
+RUN npx next build
 
 EXPOSE 3000
 
