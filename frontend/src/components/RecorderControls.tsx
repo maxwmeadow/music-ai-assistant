@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { AudioRecorder } from "@/lib/audioRecorder";
 import { WaveformCanvas } from "./WaveformCanvas";
 import { processAudioBlob } from "@/lib/audioProcessing";
-import { api } from "@/lib/api";
+import { uploadAndWait } from "@/lib/hum2melody-api";
 
 interface RecorderControlsProps {
     onMelodyGenerated?: (ir: any) => void;
@@ -89,26 +89,24 @@ export function RecorderControls({ onMelodyGenerated }: RecorderControlsProps = 
             // Convert blob to WAV format for best compatibility
             const { wav } = await processAudioBlob(lastBlob, 16000);
 
-            // Create form data with visualization request
-            const formData = new FormData();
-            formData.append("audio", wav, "recording.wav");
-            formData.append("save_training_data", "true");
-            formData.append("return_visualization", "true");
+            setStatus("Uploading to server...");
 
-            setStatus("Sending to model...");
-
-            // Call the /hum2melody endpoint
-            const response = await api("/hum2melody", {
-                method: "POST",
-                body: formData,
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`Server error: ${response.status} - ${errorText}`);
-            }
-
-            const result = await response.json();
+            // Use the new uploadAndWait function with async polling
+            const result = await uploadAndWait(
+                wav,
+                {}, // Default detection params
+                {
+                    instrument: 'piano/grand_piano_k',
+                    saveTrainingData: true,
+                    returnVisualization: false, // Disable for now to avoid timeout
+                    onProgress: (progress) => {
+                        // Update status with progress
+                        if (progress < 100) {
+                            setStatus(`Processing... ${progress}%`);
+                        }
+                    }
+                }
+            );
 
             console.log("[RecorderControls] Model result:", result);
             console.log("[RecorderControls] Has visualization?", !!result.visualization);
@@ -116,7 +114,7 @@ export function RecorderControls({ onMelodyGenerated }: RecorderControlsProps = 
             console.log("[RecorderControls] Has ir?", !!result.ir);
 
             const noteCount = result.metadata?.num_notes || result.visualization?.segments?.length || 0;
-            setStatus(`Generated ${noteCount} notes (${result.metadata?.model_used || 'unknown'} model)`);
+            setStatus(`✓ Generated ${noteCount} notes`);
 
             // Callback with the full result (includes IR, visualization, session_id)
             if (onMelodyGenerated) {
@@ -128,7 +126,7 @@ export function RecorderControls({ onMelodyGenerated }: RecorderControlsProps = 
 
         } catch (err) {
             console.error("Failed to process audio:", err);
-            setStatus(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            setStatus(`✗ Failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
             setBusy(false);
         }
     };

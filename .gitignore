@@ -14,3 +14,4 @@ npm-debug.log
 *.wav
 *.mp3
 *.db
+audio_uploads/

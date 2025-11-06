@@ -15,8 +15,18 @@ const MusicJSONParser = require('./parser');
 const app = express();
 const PORT = process.env.PORT || 5001;
 
+// CORS configuration
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',')
+  : ['http://localhost:3000', 'http://localhost:8000'];
+
+console.log('Runner CORS allowed origins:', allowedOrigins);
+
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true
+}));
 app.use(express.json({ limit: '50mb' }));
 
 // Static file serving for samples

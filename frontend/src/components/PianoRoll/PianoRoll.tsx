@@ -1,6 +1,6 @@
 "use client";
 
-import {useState, useRef, useEffect, JSX} from "react";
+import { useState, useRef, useEffect, JSX } from "react";
 import { ParsedTrack } from "@/lib/dslParser";
 
 interface PianoRollNote {
@@ -27,7 +27,7 @@ const PIANO_WIDTH = 60; // width of piano keys
 
 export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime }: PianoRollProps) {
   const [zoom, setZoom] = useState(50); // pixels per second
-  const [selectedNote, setSelectedNote] = useState<number | null>(null);
+  const [selectedNotes, setSelectedNotes] = useState<Set<number>>(new Set());
   const [draggingNote, setDraggingNote] = useState<{
     noteIndex: number;
     startX: number;
@@ -42,6 +42,15 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
   } | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawStart, setDrawStart] = useState<{ time: number; pitch: number } | null>(null);
+
+  // Box selection state
+  const [isBoxSelecting, setIsBoxSelecting] = useState(false);
+  const [boxStart, setBoxStart] = useState<{ x: number; y: number } | null>(null);
+  const [boxEnd, setBoxEnd] = useState<{ x: number; y: number } | null>(null);
+
+  // Clipboard state
+  const [clipboard, setClipboard] = useState<PianoRollNote[]>([]);
+  const [clipboardOriginTime, setClipboardOriginTime] = useState<number>(0);
 
   const canvasRef = useRef<HTMLDivElement>(null);
 
@@ -169,29 +178,29 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
 
     const noteLines: string[] = [];
     Array.from(notesByTime.entries())
-        .sort(([a], [b]) => parseFloat(a) - parseFloat(b))
-        .forEach(([timeStr, notes]) => {
-          if (notes.length === 1) {
-            const note = notes[0];
-            const noteName = pitchToNote(note.pitch);
-            // Convert beats back to seconds for DSL
-            const startSeconds = beatsToSeconds(note.start);
-            const durationSeconds = beatsToSeconds(note.duration);
-            noteLines.push(
-                `  note("${noteName}", ${startSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${note.velocity.toFixed(1)})`
-            );
-          } else {
-            const noteNames = notes.map(n => `"${pitchToNote(n.pitch)}"`).join(', ');
-            const avgDuration = notes.reduce((sum, n) => sum + n.duration, 0) / notes.length;
-            const avgVelocity = notes.reduce((sum, n) => sum + n.velocity, 0) / notes.length;
-            // Convert beats back to seconds for DSL
-            const startSeconds = beatsToSeconds(notes[0].start);
-            const durationSeconds = beatsToSeconds(avgDuration);
-            noteLines.push(
-                `  chord([${noteNames}], ${startSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${avgVelocity.toFixed(1)})`
-            );
-          }
-        });
+      .sort(([a], [b]) => parseFloat(a) - parseFloat(b))
+      .forEach(([timeStr, notes]) => {
+        if (notes.length === 1) {
+          const note = notes[0];
+          const noteName = pitchToNote(note.pitch);
+          // Convert beats back to seconds for DSL
+          const startSeconds = beatsToSeconds(note.start);
+          const durationSeconds = beatsToSeconds(note.duration);
+          noteLines.push(
+            `  note("${noteName}", ${startSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${note.velocity.toFixed(1)})`
+          );
+        } else {
+          const noteNames = notes.map(n => `"${pitchToNote(n.pitch)}"`).join(', ');
+          const avgDuration = notes.reduce((sum, n) => sum + n.duration, 0) / notes.length;
+          const avgVelocity = notes.reduce((sum, n) => sum + n.velocity, 0) / notes.length;
+          // Convert beats back to seconds for DSL
+          const startSeconds = beatsToSeconds(notes[0].start);
+          const durationSeconds = beatsToSeconds(avgDuration);
+          noteLines.push(
+            `  chord([${noteNames}], ${startSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${avgVelocity.toFixed(1)})`
+          );
+        }
+      });
 
     const newTrackContent = `${opening}\n${instrumentLine}${noteLines.join('\n')}\n${closing}`;
     const newDSL = dslCode.replace(fullMatch, newTrackContent);
@@ -222,7 +231,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
 
       // Fetch instrument mapping
       const mappingUrl = `${CDN_BASE}/samples/${track.instrument}/mapping.json`;
-      const response = await fetch(mappingUrl, {cache: 'force-cache'});
+      const response = await fetch(mappingUrl, { cache: 'force-cache' });
 
       if (!response.ok) {
         console.warn('Could not load instrument mapping for preview');
@@ -230,7 +239,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
       }
 
       const mapping = await response.json();
-      const {urls, baseUrl} = buildSamplerUrls(mapping, track.instrument, CDN_BASE);
+      const { urls, baseUrl } = buildSamplerUrls(mapping, track.instrument, CDN_BASE);
 
       // Track which MIDI notes have samples
       const available = new Set<number>();
@@ -346,7 +355,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
 
         // Get the lokey/hikey range from the first layer to understand coverage
         const sampleLayer = layerArray.find((l: any) =>
-            l.file.includes('Sustains') || l.file.includes('sus')
+          l.file.includes('Sustains') || l.file.includes('sus')
         ) || layerArray[0];
 
         if (!sampleLayer) continue;
@@ -365,7 +374,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
       }
     }
 
-    return {urls, baseUrl};
+    return { urls, baseUrl };
   };
 
   const playPreviewNote = async (pitch: number) => {
@@ -394,12 +403,12 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
   const yToPitch = (y: number) => Math.round(MIDI_MAX - y / NOTE_HEIGHT);
 
   const SNAP_OPTIONS = [
-    {label: '1/4 (Whole)', value: 4},
-    {label: '1/2 (Half)', value: 2},
-    {label: '1 (Quarter)', value: 1},
-    {label: '1/2 (8th)', value: 0.5},
-    {label: '1/4 (16th)', value: 0.25},
-    {label: '1/8 (32nd)', value: 0.125},
+    { label: '1/4 (Whole)', value: 4 },
+    { label: '1/2 (Half)', value: 2 },
+    { label: '1 (Quarter)', value: 1 },
+    { label: '1/2 (8th)', value: 0.5 },
+    { label: '1/4 (16th)', value: 0.25 },
+    { label: '1/8 (32nd)', value: 0.125 },
   ];
 
   const handleCanvasClick = (e: React.MouseEvent) => {
@@ -411,73 +420,171 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
 
     if (x < 0) return;
 
-    const rawBeats = xToTime(x);
-    const snappedBeats = snapToGrid(rawBeats);
-    const pitch = yToPitch(y);
+    // Check if clicking on an existing note
+    const notes = parseNotesFromDSL(track.id);
+    const clickedNoteIndex = notes.findIndex(note => {
+      const noteX = timeToX(note.start);
+      const noteY = pitchToY(note.pitch);
+      const noteWidth = timeToX(note.duration);
+      return x >= noteX && x <= noteX + noteWidth &&
+        y >= noteY && y <= noteY + NOTE_HEIGHT;
+    });
 
-    if (pitch < MIDI_MIN || pitch > MIDI_MAX) return;
+    if (clickedNoteIndex !== -1) {
+      // Clicked on a note - handle selection
+      if (e.shiftKey) {
+        // Shift+click: toggle note in selection
+        setSelectedNotes(prev => {
+          const newSet = new Set(prev);
+          if (newSet.has(clickedNoteIndex)) {
+            newSet.delete(clickedNoteIndex);
+          } else {
+            newSet.add(clickedNoteIndex);
+          }
+          return newSet;
+        });
+      } else {
+        // Regular click: select only this note
+        setSelectedNotes(new Set([clickedNoteIndex]));
+      }
+      return;
+    }
 
-    setIsDrawing(true);
-    setDrawStart({time: snappedBeats, pitch});
+    // Clicked on empty space
+    if (!e.shiftKey) {
+      // Clear selection if not holding shift
+      setSelectedNotes(new Set());
+    }
+
+    // Start box selection or note drawing based on drag
+    setIsBoxSelecting(true);
+    setBoxStart({ x, y });
+    setBoxEnd({ x, y });
   };
 
 
   const handleCanvasMouseMove = (e: React.MouseEvent) => {
-    if (!isDrawing || !drawStart || !canvasRef.current) return;
+    if (!canvasRef.current) return;
 
     const rect = canvasRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left - PIANO_WIDTH;
-    const currentTime = xToTime(x);
+    const y = e.clientY - rect.top;
 
-    // Visual feedback during draw (could add a preview note here)
+    // Box selection
+    if (isBoxSelecting && boxStart) {
+      setBoxEnd({ x, y });
+
+      // Calculate which notes are in the selection box
+      const notes = parseNotesFromDSL(track.id);
+      const minX = Math.min(boxStart.x, x);
+      const maxX = Math.max(boxStart.x, x);
+      const minY = Math.min(boxStart.y, y);
+      const maxY = Math.max(boxStart.y, y);
+
+      const notesInBox = new Set<number>();
+      notes.forEach((note, idx) => {
+        const noteX = timeToX(note.start);
+        const noteY = pitchToY(note.pitch);
+        const noteWidth = timeToX(note.duration);
+        const noteHeight = NOTE_HEIGHT;
+
+        // Check if note overlaps with selection box
+        const noteRight = noteX + noteWidth;
+        const noteBottom = noteY + noteHeight;
+
+        if (noteX < maxX && noteRight > minX &&
+          noteY < maxY && noteBottom > minY) {
+          notesInBox.add(idx);
+        }
+      });
+
+      setSelectedNotes(notesInBox);
+    }
+
+    // Note drawing feedback
+    if (isDrawing && drawStart) {
+      const currentTime = xToTime(x);
+      // Visual feedback during draw (could add a preview note here)
+    }
   };
 
   const handleCanvasMouseUp = (e: React.MouseEvent) => {
-    if (!isDrawing || !drawStart || !canvasRef.current) return;
+    if (!canvasRef.current) return;
 
-    const rect = canvasRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left - PIANO_WIDTH;
-    const endBeats = xToTime(x);
-
-    // Calculate the raw drag distance
-    const dragDistance = Math.abs(endBeats - drawStart.time);
-
-    console.log('=== Note Creation Debug ===');
-    console.log('snapValue:', snapValue);
-    console.log('drawStart.time:', drawStart.time);
-    console.log('endBeats:', endBeats);
-    console.log('dragDistance:', dragDistance);
-    console.log('dragDistance < snapValue / 2?', dragDistance < snapValue / 2);
-
-    let duration: number;
-
-    // If barely dragged (less than half a snap value), create note at snap size
-    if (dragDistance < snapValue / 2) {
-      duration = snapValue;
-      console.log('Using snap duration:', duration);
-    } else {
-      // User dragged - snap the end point and calculate duration
-      const snappedEndBeats = snapToGrid(endBeats);
-      duration = Math.max(snapValue, Math.abs(snappedEndBeats - drawStart.time));
-      console.log('Using dragged duration:', duration);
+    // End box selection
+    if (isBoxSelecting) {
+      setIsBoxSelecting(false);
+      setBoxStart(null);
+      setBoxEnd(null);
+      return;
     }
 
-    const notes = parseNotesFromDSL(track.id);
-    notes.push({
-      pitch: drawStart.pitch,
-      start: drawStart.time,
-      duration,
-      velocity: 0.8
-    });
+    // Note drawing
+    if (isDrawing && drawStart) {
+      const rect = canvasRef.current.getBoundingClientRect();
+      const x = e.clientX - rect.left - PIANO_WIDTH;
+      const endBeats = xToTime(x);
 
-    updateDSLWithNewNotes(notes);
-    setIsDrawing(false);
-    setDrawStart(null);
+      // Calculate the raw drag distance
+      const dragDistance = Math.abs(endBeats - drawStart.time);
+
+      console.log('=== Note Creation Debug ===');
+      console.log('snapValue:', snapValue);
+      console.log('drawStart.time:', drawStart.time);
+      console.log('endBeats:', endBeats);
+      console.log('dragDistance:', dragDistance);
+      console.log('dragDistance < snapValue / 2?', dragDistance < snapValue / 2);
+
+      let duration: number;
+
+      // If barely dragged (less than half a snap value), create note at snap size
+      if (dragDistance < snapValue / 2) {
+        duration = snapValue;
+        console.log('Using snap duration:', duration);
+      } else {
+        // User dragged - snap the end point and calculate duration
+        const snappedEndBeats = snapToGrid(endBeats);
+        duration = Math.max(snapValue, Math.abs(snappedEndBeats - drawStart.time));
+        console.log('Using dragged duration:', duration);
+      }
+
+      const notes = parseNotesFromDSL(track.id);
+      notes.push({
+        pitch: drawStart.pitch,
+        start: drawStart.time,
+        duration,
+        velocity: 0.8
+      });
+
+      updateDSLWithNewNotes(notes);
+      setIsDrawing(false);
+      setDrawStart(null);
+    }
   };
 
   const handleNoteMouseDown = (e: React.MouseEvent, noteIndex: number, isResize: boolean) => {
     e.stopPropagation();
     const notes = parseNotesFromDSL(track.id);
+
+    // If shift-clicking, toggle selection
+    if (e.shiftKey) {
+      setSelectedNotes(prev => {
+        const newSet = new Set(prev);
+        if (newSet.has(noteIndex)) {
+          newSet.delete(noteIndex);
+        } else {
+          newSet.add(noteIndex);
+        }
+        return newSet;
+      });
+      return;
+    }
+
+    // If clicking on a note that's already selected, keep the selection
+    // Otherwise, select only this note
+    if (!selectedNotes.has(noteIndex)) {
+      setSelectedNotes(new Set([noteIndex]));
+    }
 
     if (isResize) {
       setResizingNote({
@@ -494,7 +601,6 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
         initialPitch: notes[noteIndex].pitch
       });
     }
-    setSelectedNote(noteIndex);
   };
 
   const handleMouseMove = (e: MouseEvent) => {
@@ -510,8 +616,8 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
 
       notes[draggingNote.noteIndex].start = snappedStart;
       notes[draggingNote.noteIndex].pitch = Math.max(
-          MIDI_MIN,
-          Math.min(MIDI_MAX, draggingNote.initialPitch + deltaPitch)
+        MIDI_MIN,
+        Math.min(MIDI_MAX, draggingNote.initialPitch + deltaPitch)
       );
 
       updateDSLWithNewNotes(notes);
@@ -535,12 +641,119 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
   };
 
   const handleDeleteNote = () => {
-    if (selectedNote === null) return;
+    if (selectedNotes.size === 0) return;
 
     const notes = parseNotesFromDSL(track.id);
-    notes.splice(selectedNote, 1);
+    // Filter out selected notes (iterate in reverse to avoid index issues)
+    const filteredNotes = notes.filter((_, idx) => !selectedNotes.has(idx));
+    updateDSLWithNewNotes(filteredNotes);
+    setSelectedNotes(new Set());
+  };
+
+  const handleCopy = () => {
+    if (selectedNotes.size === 0) return;
+
+    const notes = parseNotesFromDSL(track.id);
+    const selectedNotesList = Array.from(selectedNotes).map(idx => notes[idx]);
+
+    // Find earliest start time to use as origin
+    const earliestStart = Math.min(...selectedNotesList.map(n => n.start));
+
+    setClipboard(selectedNotesList);
+    setClipboardOriginTime(earliestStart);
+  };
+
+  const handleCut = () => {
+    handleCopy();
+    handleDeleteNote();
+  };
+
+  const handlePaste = () => {
+    if (clipboard.length === 0) return;
+
+    const notes = parseNotesFromDSL(track.id);
+
+    // Paste at the current playback position (in beats) or at origin if not playing
+    const pasteTime = isPlaying ? secondsToBeats(currentTime) : clipboardOriginTime;
+
+    // Calculate offset from original position
+    const timeOffset = pasteTime - clipboardOriginTime;
+
+    // Create new notes with offset time
+    const newNotes = clipboard.map(note => ({
+      ...note,
+      start: note.start + timeOffset
+    }));
+
+    // Add to existing notes
+    notes.push(...newNotes);
     updateDSLWithNewNotes(notes);
-    setSelectedNote(null);
+
+    // Select the newly pasted notes
+    const startIndex = notes.length - newNotes.length;
+    const newSelection = new Set<number>();
+    for (let i = 0; i < newNotes.length; i++) {
+      newSelection.add(startIndex + i);
+    }
+    setSelectedNotes(newSelection);
+  };
+
+  const handleQuantize = (gridValue: number) => {
+    const notes = parseNotesFromDSL(track.id);
+
+    // Quantize selected notes (or all if none selected)
+    const indicesToQuantize = selectedNotes.size > 0
+      ? Array.from(selectedNotes)
+      : notes.map((_, idx) => idx);
+
+    indicesToQuantize.forEach(idx => {
+      const note = notes[idx];
+      // Snap start time to grid
+      note.start = Math.round(note.start / gridValue) * gridValue;
+      // Snap duration to grid (with minimum duration)
+      note.duration = Math.max(gridValue, Math.round(note.duration / gridValue) * gridValue);
+    });
+
+    updateDSLWithNewNotes(notes);
+  };
+
+  const handleSelectAll = () => {
+    const notes = parseNotesFromDSL(track.id);
+    const allIndices = new Set<number>();
+    notes.forEach((_, idx) => allIndices.add(idx));
+    setSelectedNotes(allIndices);
+  };
+
+  const handleDuplicate = () => {
+    if (selectedNotes.size === 0) return;
+
+    const notes = parseNotesFromDSL(track.id);
+    const selectedNotesList = Array.from(selectedNotes).map(idx => notes[idx]);
+
+    // Find the rightmost (latest) note
+    const latestEnd = Math.max(...selectedNotesList.map(n => n.start + n.duration));
+
+    // Offset for duplicates: place them right after the selection
+    // Use snap value for clean offset
+    const offset = snapToGrid(latestEnd) - Math.min(...selectedNotesList.map(n => n.start));
+
+    // Create duplicates with offset
+    const duplicates = selectedNotesList.map(note => ({
+      ...note,
+      start: note.start + offset
+    }));
+
+    // Add to existing notes
+    notes.push(...duplicates);
+    updateDSLWithNewNotes(notes);
+
+    // Select the newly duplicated notes
+    const startIndex = notes.length - duplicates.length;
+    const newSelection = new Set<number>();
+    for (let i = 0; i < duplicates.length; i++) {
+      newSelection.add(startIndex + i);
+    }
+    setSelectedNotes(newSelection);
   };
 
   useEffect(() => {
@@ -556,249 +769,424 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Check if we're in an input (don't trigger if typing in snap dropdown, etc.)
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA') {
+        return;
+      }
+
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
+
+      // Delete
       if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
         handleDeleteNote();
+      }
+
+      // Copy: Ctrl+C / Cmd+C
+      if (ctrlOrCmd && e.key === 'c') {
+        e.preventDefault();
+        handleCopy();
+      }
+
+      // Cut: Ctrl+X / Cmd+X
+      if (ctrlOrCmd && e.key === 'x') {
+        e.preventDefault();
+        handleCut();
+      }
+
+      // Paste: Ctrl+V / Cmd+V
+      if (ctrlOrCmd && e.key === 'v') {
+        e.preventDefault();
+        handlePaste();
+      }
+
+      // Select All: Ctrl+A / Cmd+A
+      if (ctrlOrCmd && e.key === 'a') {
+        e.preventDefault();
+        handleSelectAll();
+      }
+
+      // Duplicate: Ctrl+D / Cmd+D
+      if (ctrlOrCmd && e.key === 'd') {
+        e.preventDefault();
+        handleDuplicate();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedNote]);
+  }, [selectedNotes, clipboard, clipboardOriginTime, isPlaying, currentTime]);
+
+  // Velocity editor state
+  const [editingVelocity, setEditingVelocity] = useState<{
+    noteIndex: number;
+    startY: number;
+    initialVelocity: number;
+  } | null>(null);
+  const velocityCanvasRef = useRef<HTMLDivElement>(null);
+
+  const handleVelocityMouseDown = (e: React.MouseEvent, noteIndex: number) => {
+    e.stopPropagation();
+    const notes = parseNotesFromDSL(track.id);
+    setEditingVelocity({
+      noteIndex,
+      startY: e.clientY,
+      initialVelocity: notes[noteIndex].velocity
+    });
+
+    // Select this note if not already selected
+    if (!selectedNotes.has(noteIndex)) {
+      setSelectedNotes(new Set([noteIndex]));
+    }
+  };
+
+  const handleVelocityMouseMove = (e: MouseEvent) => {
+    if (!editingVelocity) return;
+
+    const deltaY = editingVelocity.startY - e.clientY; // Inverted: up = increase
+    const velocityChange = deltaY / 100; // 100px = 1.0 velocity change
+
+    const notes = parseNotesFromDSL(track.id);
+    const newVelocity = Math.max(0.1, Math.min(1.0, editingVelocity.initialVelocity + velocityChange));
+
+    notes[editingVelocity.noteIndex].velocity = newVelocity;
+    updateDSLWithNewNotes(notes);
+  };
+
+  const handleVelocityMouseUp = () => {
+    setEditingVelocity(null);
+  };
+
+  useEffect(() => {
+    if (editingVelocity) {
+      window.addEventListener('mousemove', handleVelocityMouseMove);
+      window.addEventListener('mouseup', handleVelocityMouseUp);
+      return () => {
+        window.removeEventListener('mousemove', handleVelocityMouseMove);
+        window.removeEventListener('mouseup', handleVelocityMouseUp);
+      };
+    }
+  }, [editingVelocity]);
 
   const notes = parseNotesFromDSL(track.id);
   const maxDuration = Math.max(10, ...notes.map(n => n.start + n.duration));
 
   return (
-      <div className="bg-gray-950 border border-white/10 rounded-xl overflow-hidden">
-        <div className="bg-gray-900 border-b border-white/10 p-4 flex items-center justify-between">
-          <div>
-            <h3 className="text-white font-semibold">Piano Roll - {track.id}</h3>
-            <p className="text-xs text-gray-400">
-              Click piano keys to preview • Click and drag grid to create notes • Drag notes to move • Delete key to
-              remove
-            </p>
-          </div>
-          <div className="flex items-center gap-4">
-            {!samplerLoaded && track.instrument && (
-                <span className="text-xs text-yellow-400">Loading samples...</span>
-            )}
-
-            {/* Snap controls */}
-            <div className="flex items-center gap-2">
-              <button
-                  onClick={() => setSnapEnabled(!snapEnabled)}
-                  className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors ${
-                      snapEnabled
-                          ? 'bg-purple-600 text-white'
-                          : 'bg-white/10 text-gray-400'
-                  }`}
-              >
-                SNAP
-              </button>
-
-              <select
-                  value={snapValue}
-                  onChange={(e) => setSnapValue(Number(e.target.value))}
-                  disabled={!snapEnabled}
-                  className="bg-white/10 text-white text-xs rounded-lg px-2 py-1 border border-white/20 disabled:opacity-50"
-              >
-                {SNAP_OPTIONS.map(opt => (
-                    <option key={opt.value} value={opt.value} className="bg-gray-900">
-                      {opt.label}
-                    </option>
-                ))}
-              </select>
-            </div>
-
-            <label className="text-sm text-gray-400">Zoom:</label>
-            <input
-                type="range"
-                min="20"
-                max="200"
-                value={zoom}
-                onChange={(e) => setZoom(Number(e.target.value))}
-                className="w-32"
-            />
-          </div>
+    <div className="bg-gray-950 border border-white/10 rounded-xl overflow-hidden flex flex-col">
+      <div className="bg-gray-900 border-b border-white/10 p-4 flex items-center justify-between">
+        <div>
+          <h3 className="text-white font-semibold">Piano Roll - {track.id}</h3>
+          <p className="text-xs text-gray-400">
+            Click piano keys to preview • Click and drag grid to create notes • Drag notes to move • Delete key to
+            remove
+          </p>
         </div>
+        <div className="flex items-center gap-4">
+          {!samplerLoaded && track.instrument && (
+            <span className="text-xs text-yellow-400">Loading samples...</span>
+          )}
 
-        <div
-            ref={canvasRef}
-            className="relative overflow-auto"
-            style={{height: '400px'}}
-            onMouseDown={handleCanvasClick}
-            onMouseMove={handleCanvasMouseMove}
-            onMouseUp={handleCanvasMouseUp}
-        >
-          <div className="flex">
-            {/* Piano keys */}
-            <div className="sticky left-0 z-10 bg-gray-900" style={{width: `${PIANO_WIDTH}px`}}>
-              {Array.from({length: MIDI_MAX - MIDI_MIN + 1}).map((_, i) => {
-                const pitch = MIDI_MAX - i;
-                const isBlack = isBlackKey(pitch);
-                const isC = pitch % 12 === 0;
-                const hasSample = availableNotes.has(pitch);
+          {/* Snap controls */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSnapEnabled(!snapEnabled)}
+              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors ${snapEnabled
+                  ? 'bg-purple-600 text-white'
+                  : 'bg-white/10 text-gray-400'
+                }`}
+            >
+              SNAP
+            </button>
 
-                return (
-                    <div
-                        key={pitch}
-                        className={`border-b border-gray-700 ${
-                            !hasSample
-                                ? 'bg-gray-950 cursor-not-allowed'
-                                : isBlack
-                                    ? 'bg-gray-800 hover:bg-gray-700 cursor-pointer'
-                                    : 'bg-gray-100 hover:bg-gray-200 cursor-pointer'
-                        } transition-colors`}
-                        style={{height: `${NOTE_HEIGHT}px`}}
-                        onClick={() => hasSample && handlePianoKeyClick(pitch)}
-                    >
-                  <span className={`text-xs px-2 ${
-                      !hasSample
-                          ? 'text-gray-700'
-                          : isBlack
-                              ? 'text-gray-400'
-                              : 'text-gray-600'
-                  }`}>
+            <select
+              value={snapValue}
+              onChange={(e) => setSnapValue(Number(e.target.value))}
+              disabled={!snapEnabled}
+              className="bg-white/10 text-white text-xs rounded-lg px-2 py-1 border border-white/20 disabled:opacity-50"
+            >
+              {SNAP_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value} className="bg-gray-900">
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Quantize controls */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handleQuantize(snapValue)}
+              disabled={notes.length === 0}
+              className="px-3 py-1 text-xs font-semibold rounded-lg transition-colors bg-blue-600 hover:bg-blue-500 disabled:bg-white/10 disabled:text-gray-500 text-white"
+              title={selectedNotes.size > 0 ? `Quantize ${selectedNotes.size} selected notes` : 'Quantize all notes'}
+            >
+              QUANTIZE
+            </button>
+          </div>
+
+          <label className="text-sm text-gray-400">Zoom:</label>
+          <input
+            type="range"
+            min="20"
+            max="200"
+            value={zoom}
+            onChange={(e) => setZoom(Number(e.target.value))}
+            className="w-32"
+          />
+        </div>
+      </div>
+
+      <div
+        ref={canvasRef}
+        className="relative overflow-auto"
+        style={{ height: '400px' }}
+        onMouseDown={handleCanvasClick}
+        onMouseMove={handleCanvasMouseMove}
+        onMouseUp={handleCanvasMouseUp}
+      >
+        <div className="flex">
+          {/* Piano keys */}
+          <div className="sticky left-0 z-10 bg-gray-900" style={{ width: `${PIANO_WIDTH}px` }}>
+            {Array.from({ length: MIDI_MAX - MIDI_MIN + 1 }).map((_, i) => {
+              const pitch = MIDI_MAX - i;
+              const isBlack = isBlackKey(pitch);
+              const isC = pitch % 12 === 0;
+              const hasSample = availableNotes.has(pitch);
+
+              return (
+                <div
+                  key={pitch}
+                  className={`border-b border-gray-700 ${!hasSample
+                      ? 'bg-gray-950 cursor-not-allowed'
+                      : isBlack
+                        ? 'bg-gray-800 hover:bg-gray-700 cursor-pointer'
+                        : 'bg-gray-100 hover:bg-gray-200 cursor-pointer'
+                    } transition-colors`}
+                  style={{ height: `${NOTE_HEIGHT}px` }}
+                  onClick={() => hasSample && handlePianoKeyClick(pitch)}
+                >
+                  <span className={`text-xs px-2 ${!hasSample
+                      ? 'text-gray-700'
+                      : isBlack
+                        ? 'text-gray-400'
+                        : 'text-gray-600'
+                    }`}>
                     {isC && pitchToNote(pitch)}
                     {!hasSample && ' ×'}
                   </span>
-                    </div>
-                );
-              })}
-            </div>
+                </div>
+              );
+            })}
+          </div>
 
-            {/* Grid and notes */}
-            <div className="relative flex-1" style={{width: `${maxDuration * zoom}px`}}>
-              {/* Grid lines */}
-              {Array.from({length: MIDI_MAX - MIDI_MIN + 1}).map((_, i) => {
-                const pitch = MIDI_MAX - i;
-                const isBlack = isBlackKey(pitch);
-                const hasSample = availableNotes.has(pitch);
+          {/* Grid and notes */}
+          <div className="relative flex-1" style={{ width: `${maxDuration * zoom}px` }}>
+            {/* Grid lines */}
+            {Array.from({ length: MIDI_MAX - MIDI_MIN + 1 }).map((_, i) => {
+              const pitch = MIDI_MAX - i;
+              const isBlack = isBlackKey(pitch);
+              const hasSample = availableNotes.has(pitch);
 
-                return (
-                    <div
-                        key={pitch}
-                        className={`absolute w-full border-b ${
-                            !hasSample
-                                ? 'bg-gray-950/50 border-gray-800/30'
-                                : isBlack
-                                    ? 'bg-gray-900 border-gray-800'
-                                    : 'bg-gray-950 border-gray-700'
-                        }`}
-                        style={{
-                          top: `${i * NOTE_HEIGHT}px`,
-                          height: `${NOTE_HEIGHT}px`,
-                        }}
-                    />
-                );
-              })}
+              return (
+                <div
+                  key={pitch}
+                  className={`absolute w-full border-b ${!hasSample
+                      ? 'bg-gray-950/50 border-gray-800/30'
+                      : isBlack
+                        ? 'bg-gray-900 border-gray-800'
+                        : 'bg-gray-950 border-gray-700'
+                    }`}
+                  style={{
+                    top: `${i * NOTE_HEIGHT}px`,
+                    height: `${NOTE_HEIGHT}px`,
+                  }}
+                />
+              );
+            })}
 
-              {/* Time markers with adaptive subdivisions */}
-              {(() => {
-                const { subdivision, showSubdivisions, showSixteenths } = getGridSubdivision(zoom);
-                const totalBeats = Math.ceil(maxDuration);
-                const markers: JSX.Element[] = [];
+            {/* Time markers with adaptive subdivisions */}
+            {(() => {
+              const { subdivision, showSubdivisions, showSixteenths } = getGridSubdivision(zoom);
+              const totalBeats = Math.ceil(maxDuration);
+              const markers: JSX.Element[] = [];
 
-                // Generate all markers based on subdivision
-                for (let beat = 0; beat <= totalBeats; beat += subdivision) {
-                  const bar = Math.floor(beat / 4) + 1;
-                  const beatInBar = (beat % 4);
-                  const isMeasureStart = beat % 4 === 0;
-                  const isBeatStart = beat % 1 === 0;
-                  const isEighthNote = beat % 0.5 === 0 && beat % 1 !== 0;
-                  const isSixteenthNote = beat % 0.25 === 0 && beat % 0.5 !== 0;
+              // Generate all markers based on subdivision
+              for (let beat = 0; beat <= totalBeats; beat += subdivision) {
+                const bar = Math.floor(beat / 4) + 1;
+                const beatInBar = (beat % 4);
+                const isMeasureStart = beat % 4 === 0;
+                const isBeatStart = beat % 1 === 0;
+                const isEighthNote = beat % 0.5 === 0 && beat % 1 !== 0;
+                const isSixteenthNote = beat % 0.25 === 0 && beat % 0.5 !== 0;
 
-                  // Determine line style
-                  let borderClass = '';
-                  let labelContent = null;
+                // Determine line style
+                let borderClass = '';
+                let labelContent = null;
 
-                  if (isMeasureStart) {
-                    borderClass = 'border-l-2 border-gray-500';
-                    labelContent = (
-                      <span className="text-xs font-bold text-gray-200 absolute -top-5 -translate-x-1/2">
-                        {bar}
-                      </span>
-                    );
-                  } else if (isBeatStart) {
-                    borderClass = 'border-l border-gray-600';
-                    labelContent = (
-                      <span className="text-xs text-gray-400 absolute -top-5 -translate-x-1/2">
-                        {Math.floor(beatInBar) + 1}
-                      </span>
-                    );
-                  } else if (isEighthNote && showSubdivisions) {
-                    borderClass = 'border-l border-gray-700/50';
-                    if (showSixteenths) {
-                      labelContent = (
-                        <span className="text-[10px] text-gray-500 absolute -top-5 -translate-x-1/2">
-                          +
-                        </span>
-                      );
-                    }
-                  } else if (isSixteenthNote && showSixteenths) {
-                    borderClass = 'border-l border-gray-800/30';
-                  }
-
-                  markers.push(
-                    <div
-                      key={beat}
-                      className={`absolute top-0 bottom-0 ${borderClass}`}
-                      style={{ left: `${beat * zoom}px` }}
-                    >
-                      {labelContent}
-                    </div>
+                if (isMeasureStart) {
+                  borderClass = 'border-l-2 border-gray-500';
+                  labelContent = (
+                    <span className="text-xs font-bold text-gray-200 absolute -top-5 -translate-x-1/2">
+                      {bar}
+                    </span>
                   );
+                } else if (isBeatStart) {
+                  borderClass = 'border-l border-gray-600';
+                  labelContent = (
+                    <span className="text-xs text-gray-400 absolute -top-5 -translate-x-1/2">
+                      {Math.floor(beatInBar) + 1}
+                    </span>
+                  );
+                } else if (isEighthNote && showSubdivisions) {
+                  borderClass = 'border-l border-gray-700/50';
+                  if (showSixteenths) {
+                    labelContent = (
+                      <span className="text-[10px] text-gray-500 absolute -top-5 -translate-x-1/2">
+                        +
+                      </span>
+                    );
+                  }
+                } else if (isSixteenthNote && showSixteenths) {
+                  borderClass = 'border-l border-gray-800/30';
                 }
 
-                return markers;
-              })()}
+                markers.push(
+                  <div
+                    key={beat}
+                    className={`absolute top-0 bottom-0 ${borderClass}`}
+                    style={{ left: `${beat * zoom}px` }}
+                  >
+                    {labelContent}
+                  </div>
+                );
+              }
 
-              {/* Notes */}
+              return markers;
+            })()}
+
+            {/* Notes */}
+            {notes.map((note, idx) => {
+              const hasSample = availableNotes.has(note.pitch);
+              const isSelected = selectedNotes.has(idx);
+
+              return (
+                <div
+                  key={idx}
+                  className={`absolute rounded cursor-move ${!hasSample
+                      ? 'bg-red-500/50 border-2 border-red-600'
+                      : note.isChord
+                        ? 'bg-blue-500'
+                        : 'bg-purple-500'
+                    } ${isSelected ? 'ring-2 ring-white' : ''} hover:brightness-110`}
+                  style={{
+                    left: `${timeToX(note.start)}px`,
+                    top: `${pitchToY(note.pitch) + 1}px`,
+                    width: `${timeToX(note.duration)}px`,
+                    height: `${NOTE_HEIGHT - 2}px`,
+                    opacity: hasSample ? note.velocity : 0.5,
+                  }}
+                  onMouseDown={(e) => hasSample && handleNoteMouseDown(e, idx, false)}
+                >
+                  <div className="text-xs text-white px-1 truncate pointer-events-none">
+                    {pitchToNote(note.pitch)} {!hasSample && '⚠'}
+                  </div>
+
+                  {hasSample && (
+                    <div
+                      className="absolute right-0 top-0 bottom-0 w-1 bg-white/50 hover:bg-white cursor-ew-resize"
+                      onMouseDown={(e) => handleNoteMouseDown(e, idx, true)}
+                    />
+                  )}
+                </div>
+              );
+            })}
+
+            {/* Box selection visual */}
+            {isBoxSelecting && boxStart && boxEnd && (
+              <div
+                className="absolute border-2 border-blue-400 bg-blue-400/20 pointer-events-none"
+                style={{
+                  left: `${Math.min(boxStart.x, boxEnd.x)}px`,
+                  top: `${Math.min(boxStart.y, boxEnd.y)}px`,
+                  width: `${Math.abs(boxEnd.x - boxStart.x)}px`,
+                  height: `${Math.abs(boxEnd.y - boxStart.y)}px`,
+                }}
+              />
+            )}
+
+            {/* Playback cursor */}
+            {isPlaying && (
+              <div
+                className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-20 pointer-events-none"
+                style={{ left: `${timeToX(secondsToBeats(currentTime))}px` }}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Velocity Editor */}
+      <div className="border-t border-white/10">
+        <div className="bg-gray-900 px-4 py-2 border-b border-white/10">
+          <h4 className="text-sm font-semibold text-white">Velocity Editor</h4>
+          <p className="text-xs text-gray-400">Click and drag bars to adjust velocity</p>
+        </div>
+        <div
+          ref={velocityCanvasRef}
+          className="relative overflow-auto bg-gray-950"
+          style={{ height: '120px' }}
+        >
+          <div className="flex">
+            {/* Spacer for piano keys alignment */}
+            <div className="sticky left-0 z-10 bg-gray-900" style={{ width: `${PIANO_WIDTH}px` }}>
+              <div className="h-full flex items-center justify-center text-xs text-gray-500">
+                Velocity
+              </div>
+            </div>
+
+            {/* Velocity bars */}
+            <div className="relative flex-1" style={{ width: `${maxDuration * zoom}px`, height: '100px' }}>
+              {/* Background grid lines (same as piano roll time markers) */}
+              {Array.from({ length: Math.ceil(maxDuration / 4) + 1 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="absolute top-0 bottom-0 border-l-2 border-gray-600"
+                  style={{ left: `${i * 4 * zoom}px` }}
+                />
+              ))}
+
+              {/* Velocity bars for each note */}
               {notes.map((note, idx) => {
-                const hasSample = availableNotes.has(note.pitch);
+                const isSelected = selectedNotes.has(idx);
+                const barHeight = note.velocity * 100; // 0-1 → 0-100px
 
                 return (
-                    <div
-                        key={idx}
-                        className={`absolute rounded cursor-move ${
-                            !hasSample
-                                ? 'bg-red-500/50 border-2 border-red-600'
-                                : note.isChord
-                                    ? 'bg-blue-500'
-                                    : 'bg-purple-500'
-                        } ${selectedNote === idx ? 'ring-2 ring-white' : ''} hover:brightness-110`}
-                        style={{
-                          left: `${timeToX(note.start)}px`,
-                          top: `${pitchToY(note.pitch) + 1}px`,
-                          width: `${timeToX(note.duration)}px`,
-                          height: `${NOTE_HEIGHT - 2}px`,
-                          opacity: hasSample ? note.velocity : 0.5,
-                        }}
-                        onMouseDown={(e) => hasSample && handleNoteMouseDown(e, idx, false)}
-                    >
-                      <div className="text-xs text-white px-1 truncate pointer-events-none">
-                        {pitchToNote(note.pitch)} {!hasSample && '⚠'}
+                  <div
+                    key={idx}
+                    className={`absolute cursor-ns-resize ${isSelected ? 'bg-purple-400' : 'bg-purple-600/70'
+                      } hover:bg-purple-400 transition-colors`}
+                    style={{
+                      left: `${timeToX(note.start)}px`,
+                      bottom: '0px',
+                      width: `${timeToX(note.duration)}px`,
+                      height: `${barHeight}px`,
+                    }}
+                    onMouseDown={(e) => handleVelocityMouseDown(e, idx)}
+                    title={`Velocity: ${note.velocity.toFixed(2)}`}
+                  >
+                    {isSelected && (
+                      <div className="absolute top-0 left-0 right-0 text-center text-xs text-white font-bold">
+                        {note.velocity.toFixed(2)}
                       </div>
-
-                      {hasSample && (
-                          <div
-                              className="absolute right-0 top-0 bottom-0 w-1 bg-white/50 hover:bg-white cursor-ew-resize"
-                              onMouseDown={(e) => handleNoteMouseDown(e, idx, true)}
-                          />
-                      )}
-                    </div>
+                    )}
+                  </div>
                 );
               })}
-
-              {/* Playback cursor */}
-              {isPlaying && (
-                  <div
-                      className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-20 pointer-events-none"
-                      style={{left: `${timeToX(secondsToBeats(currentTime))}px`}}
-                  />
-              )}
             </div>
           </div>
         </div>
       </div>
+    </div>
   );
 }
