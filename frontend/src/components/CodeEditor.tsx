@@ -151,9 +151,8 @@ export function CodeEditor({
         );
 
         return () => {
-            if (commandId && editorRef.current) {
-                editorRef.current.removeCommand(commandId);
-            }
+            // Cleanup: Monaco editor doesn't have removeCommand API
+            // Command will be cleaned up when editor is disposed
         };
     }, []);
 
