@@ -6,7 +6,7 @@ import { AudioRecorder } from "@/lib/audioRecorder";
 import { WaveformCanvas } from "./WaveformCanvas";
 import { processAudioBlob } from "@/lib/audioProcessing";
 import { api } from "@/lib/api";
-import DrumOnsetVisualizer from "./DrumOnsetVisualizer";
+// import DrumOnsetVisualizer from "./DrumOnsetVisualizer"; // TODO: Component doesn't exist yet
 import { uploadAndWait } from "@/lib/hum2melody-api";
 
 interface RecorderControlsProps {
@@ -126,7 +126,7 @@ export function RecorderControls({ onMelodyGenerated, mode = 'melody', onVisuali
                     {
                         instrument: 'piano/grand_piano_k',
                         saveTrainingData: true,
-                        returnVisualization: false, // Disable for now to avoid timeout
+                        returnVisualization: true, // Enable to show DetectionTuner modal
                         onProgress: (progress) => {
                             // Update status with progress
                             if (progress < 100) {
@@ -219,7 +219,8 @@ export function RecorderControls({ onMelodyGenerated, mode = 'melody', onVisuali
             <audio ref={audioRef} style={{ display: "none" }} />
 
             {/* Drum Onset Visualization Modal */}
-            {visualization && mode === 'drums' && (
+            {/* TODO: DrumOnsetVisualizer component doesn't exist yet */}
+            {/* {visualization && mode === 'drums' && (
                 <DrumOnsetVisualizer
                     visualization={visualization}
                     onClose={() => {
@@ -230,7 +231,7 @@ export function RecorderControls({ onMelodyGenerated, mode = 'melody', onVisuali
                         }
                     }}
                 />
-            )}
+            )} */}
         </div>
     );
 }
