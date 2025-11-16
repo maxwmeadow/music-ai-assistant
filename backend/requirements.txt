@@ -15,7 +15,9 @@ audioread>=3.0.0
 python-multipart
 
 # Deep Learning (Hum2Melody model requirements)
-# Using CPU-only PyTorch to reduce image size (~700MB -> ~200MB)
-torch>=2.0.0 --index-url https://download.pytorch.org/whl/cpu
-torchaudio>=2.0.0 --index-url https://download.pytorch.org/whl/cpu
+torch>=2.0.0
+torchaudio>=2.0.0
 tqdm>=4.65.0
+
+# Deep Learning (Beatbox2Drums model requirements)
+tensorflow>=2.12.0

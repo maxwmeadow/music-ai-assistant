@@ -481,7 +481,8 @@ async def hum_to_melody_legacy(
 @app.post("/beatbox2drums")
 async def beatbox_to_drums(
     audio: UploadFile = File(...),
-    save_training_data: bool = Form(True)
+    save_training_data: bool = Form(True),
+    return_visualization: bool = Form(False)
 ):
     """
     Process beatbox audio and return drum pattern in IR format.
@@ -508,10 +509,14 @@ async def beatbox_to_drums(
         print("Processing audio...")
         audio_features = audio_processor.preprocess_for_beatbox(audio_bytes)
         print(f"Extracted features: duration={audio_features['duration']:.2f}s, tempo={audio_features['tempo']:.1f}")
-        
+
+        # Add audio_bytes and audio_path for model inference
+        audio_features['audio_bytes'] = audio_bytes
+        audio_features['audio_path'] = str(file_path)
+
         # Get model prediction
         print("Getting model prediction...")
-        drums_track = await model_server.predict_drums(audio_features)
+        drums_track, visualization_data = await model_server.predict_drums(audio_features, return_visualization=return_visualization)
         
         # Create IR
         ir = IR(
@@ -544,7 +549,7 @@ async def beatbox_to_drums(
                 prediction=drums_track.model_dump()
             )
         
-        return JSONResponse(content={
+        response_data = {
             "status": "success",
             "ir": ir.model_dump(),
             "audio_id": audio_id,
@@ -554,7 +559,13 @@ async def beatbox_to_drums(
                 "num_samples": len(drums_track.samples) if drums_track.samples else 0,
                 "file_path": file_path
             }
-        })
+        }
+
+        # Add visualization data if requested
+        if return_visualization and visualization_data:
+            response_data["visualization"] = visualization_data
+
+        return JSONResponse(content=response_data)
         
     except Exception as e:
         print(f"Error in beatbox2drums: {e}")

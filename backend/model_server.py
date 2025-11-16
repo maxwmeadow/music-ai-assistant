@@ -51,6 +51,31 @@ except Exception as e:
 print(f"[MODEL_SERVER.PY] Final ChunkedHybridHum2Melody status: {ChunkedHybridHum2Melody is not None}")
 print("[MODEL_SERVER.PY] ========================================")
 
+# Import the new beatbox2drums package
+print("[MODEL_SERVER.PY] Attempting to import Beatbox2DrumsPipeline...")
+print("[MODEL_SERVER.PY]   Trying: from .beatbox2drums.inference.beatbox2drums_pipeline import Beatbox2DrumsPipeline")
+
+Beatbox2DrumsPipeline = None
+try:
+    from .beatbox2drums.inference.beatbox2drums_pipeline import Beatbox2DrumsPipeline
+    print("[MODEL_SERVER.PY]   ✅ SUCCESS - Beatbox2DrumsPipeline imported!")
+    print(f"[MODEL_SERVER.PY]   Beatbox2DrumsPipeline type: {type(Beatbox2DrumsPipeline)}")
+except ImportError as e:
+    print(f"[MODEL_SERVER.PY]   ❌ FAILED - ImportError: {e}")
+    print("[MODEL_SERVER.PY]   Full traceback:")
+    traceback.print_exc()
+    print("[MODEL_SERVER.PY]   Beatbox2DrumsPipeline will be None")
+    Beatbox2DrumsPipeline = None
+except Exception as e:
+    print(f"[MODEL_SERVER.PY]   ❌ FAILED - Unexpected error: {e}")
+    print("[MODEL_SERVER.PY]   Full traceback:")
+    traceback.print_exc()
+    print("[MODEL_SERVER.PY]   Beatbox2DrumsPipeline will be None")
+    Beatbox2DrumsPipeline = None
+
+print(f"[MODEL_SERVER.PY] Final Beatbox2DrumsPipeline status: {Beatbox2DrumsPipeline is not None}")
+print("[MODEL_SERVER.PY] ========================================")
+
 
 class ModelServer:
     """
@@ -58,79 +83,110 @@ class ModelServer:
     Now integrates the trained model if available, but falls back to mock logic.
     """
 
-    def __init__(self, preload: bool = True):
-        """Initialize model server with optional preloading
-
-        Args:
-            preload: If True, load model immediately. If False, lazy-load on first use.
-        """
+    def __init__(self):
+        """Initialize model server and optionally load trained model"""
         print("[ModelServer.__init__] ========================================")
-        print(f"[ModelServer.__init__] Initializing ModelServer (preload={preload})")
+        print("[ModelServer.__init__] Initializing ModelServer")
 
-        # Store checkpoint path but don't load the model yet
-        self.checkpoint_path = Path("hum2melody/checkpoints/combined_hum2melody_full.pth")
-        print(f"[ModelServer.__init__]   Checkpoint path: {self.checkpoint_path}")
-        print(f"[ModelServer.__init__]   Checkpoint path (absolute): {self.checkpoint_path.absolute()}")
-        print(f"[ModelServer.__init__]   Checkpoint exists: {self.checkpoint_path.exists()}")
+        checkpoint_path = Path("hum2melody/checkpoints/combined_hum2melody_full.pth")
+        print(f"[ModelServer.__init__]   Checkpoint path: {checkpoint_path}")
+        print(f"[ModelServer.__init__]   Checkpoint path (absolute): {checkpoint_path.absolute()}")
+        print(f"[ModelServer.__init__]   Checkpoint exists: {checkpoint_path.exists()}")
 
-        if self.checkpoint_path.exists():
-            size_mb = self.checkpoint_path.stat().st_size / (1024 * 1024)
+        if checkpoint_path.exists():
+            size_mb = checkpoint_path.stat().st_size / (1024 * 1024)
             print(f"[ModelServer.__init__]   Checkpoint size: {size_mb:.1f} MB")
 
-        # Model will be loaded on first use (lazy loading) or immediately if preload=True
-        self.predictor = None
-        self._model_loading_attempted = False
+        print(f"[ModelServer.__init__]   ChunkedHybridHum2Melody is None: {ChunkedHybridHum2Melody is None}")
+        print(f"[ModelServer.__init__]   Checkpoint exists: {checkpoint_path.exists()}")
 
-        # Define scales for fallback
-        self.c_major_scale = [60, 62, 64, 65, 67, 69, 71, 72]
-        self.a_minor_scale = [57, 59, 60, 62, 64, 65, 67, 69]
-
-        if preload:
-            print("[ModelServer.__init__] Preloading model on startup...")
-            self._ensure_model_loaded()
-
-        print("[ModelServer.__init__] ✅ Initialized")
-        print("[ModelServer.__init__] ========================================")
-
-    def _ensure_model_loaded(self):
-        """Lazy-load the model on first use to save memory on startup"""
-        if self._model_loading_attempted:
-            return  # Already tried to load (success or failure)
-
-        self._model_loading_attempted = True
-        print("[ModelServer._ensure_model_loaded] ========================================")
-        print("[ModelServer._ensure_model_loaded] Attempting lazy model load...")
-
-        if ChunkedHybridHum2Melody is not None and self.checkpoint_path.exists():
-            print("[ModelServer._ensure_model_loaded] ✅ Both conditions met - loading model")
+        if ChunkedHybridHum2Melody is not None and checkpoint_path.exists():
+            print("[ModelServer.__init__] ✅ Both conditions met - attempting to load model")
             try:
-                print(f"[ModelServer._ensure_model_loaded]   Creating ChunkedHybridHum2Melody instance...")
-                print(f"[ModelServer._ensure_model_loaded]   Args: checkpoint={self.checkpoint_path}, device=cpu")
+                print(f"[ModelServer.__init__]   Creating ChunkedHybridHum2Melody instance...")
+                print(f"[ModelServer.__init__]   Args: checkpoint={checkpoint_path}, device=cpu")
 
                 self.predictor = ChunkedHybridHum2Melody(
-                    checkpoint_path=str(self.checkpoint_path),
+                    checkpoint_path=str(checkpoint_path),
                     device='cpu',
                     onset_high=0.30,
                     onset_low=0.10,
                     offset_high=0.30,
                     offset_low=0.10
                 )
-                print(f"[ModelServer._ensure_model_loaded]   ✅ Model loaded successfully!")
-                print(f"[ModelServer._ensure_model_loaded]   Predictor device: {self.predictor.device}")
+                print(f"[ModelServer.__init__]   ✅ Model loaded successfully!")
+                print(f"[ModelServer.__init__]   Predictor device: {self.predictor.device}")
             except Exception as e:
-                print(f"[ModelServer._ensure_model_loaded]   ❌ Failed to load model: {e}")
-                print("[ModelServer._ensure_model_loaded]   Full traceback:")
+                print(f"[ModelServer.__init__]   ❌ Failed to load model: {e}")
+                print("[ModelServer.__init__]   Full traceback:")
                 traceback.print_exc()
                 self.predictor = None
         else:
-            print("[ModelServer._ensure_model_loaded] ❌ Conditions NOT met for loading model:")
-            if not self.checkpoint_path.exists():
-                print(f"[ModelServer._ensure_model_loaded]   ❌ No trained model found at {self.checkpoint_path}")
+            print("[ModelServer.__init__] ❌ Conditions NOT met for loading model:")
+            self.predictor = None
+            if not checkpoint_path.exists():
+                print(f"[ModelServer.__init__]   ❌ No trained model found at {checkpoint_path}")
             if ChunkedHybridHum2Melody is None:
-                print("[ModelServer._ensure_model_loaded]   ❌ ChunkedHybridHum2Melody not available (import failed)")
-            print("[ModelServer._ensure_model_loaded]   Using mock predictions")
+                print("[ModelServer.__init__]   ❌ ChunkedHybridHum2Melody not available (import failed)")
+            print("[ModelServer.__init__]   Using mock predictions")
 
-        print("[ModelServer._ensure_model_loaded] ========================================")
+        # Define scales for fallback
+        self.c_major_scale = [60, 62, 64, 65, 67, 69, 71, 72]
+        self.a_minor_scale = [57, 59, 60, 62, 64, 65, 67, 69]
+
+        print(f"[ModelServer.__init__] Final predictor status: {self.predictor is not None}")
+
+        # Initialize beatbox2drums pipeline
+        print("[ModelServer.__init__] ========================================")
+        print("[ModelServer.__init__] Initializing Beatbox2Drums Pipeline")
+
+        onset_checkpoint_path = Path("beatbox2drums/checkpoints/onset_detector/best_onset_model.h5")
+        classifier_checkpoint_path = Path("beatbox2drums/checkpoints/drum_classifier/best_model_multi_input.pth")
+        feature_norm_path = Path("beatbox2drums/checkpoints/drum_classifier/feature_normalization.npz")
+
+        print(f"[ModelServer.__init__]   Onset checkpoint: {onset_checkpoint_path}")
+        print(f"[ModelServer.__init__]   Onset checkpoint exists: {onset_checkpoint_path.exists()}")
+        print(f"[ModelServer.__init__]   Classifier checkpoint: {classifier_checkpoint_path}")
+        print(f"[ModelServer.__init__]   Classifier checkpoint exists: {classifier_checkpoint_path.exists()}")
+        print(f"[ModelServer.__init__]   Feature norm path: {feature_norm_path}")
+        print(f"[ModelServer.__init__]   Feature norm exists: {feature_norm_path.exists()}")
+        print(f"[ModelServer.__init__]   Beatbox2DrumsPipeline is None: {Beatbox2DrumsPipeline is None}")
+
+        if Beatbox2DrumsPipeline is not None and onset_checkpoint_path.exists() and classifier_checkpoint_path.exists():
+            print("[ModelServer.__init__] ✅ All conditions met - attempting to load beatbox2drums pipeline")
+            try:
+                print(f"[ModelServer.__init__]   Creating Beatbox2DrumsPipeline instance with multi-input model...")
+                self.beatbox_predictor = Beatbox2DrumsPipeline(
+                    onset_checkpoint_path=str(onset_checkpoint_path),
+                    classifier_checkpoint_path=str(classifier_checkpoint_path),
+                    onset_threshold=0.5,
+                    onset_peak_delta=0.05,  # 50ms NMS window
+                    classifier_confidence_threshold=0.3,
+                    device='cpu',
+                    use_multi_input=True,  # Use new multi-input model with spectral features
+                    feature_norm_path=str(feature_norm_path) if feature_norm_path.exists() else None
+                )
+                print(f"[ModelServer.__init__]   ✅ Beatbox2Drums pipeline loaded successfully!")
+                print(f"[ModelServer.__init__]   Pipeline device: {self.beatbox_predictor.device}")
+                print(f"[ModelServer.__init__]   Multi-input mode: {self.beatbox_predictor.use_multi_input}")
+            except Exception as e:
+                print(f"[ModelServer.__init__]   ❌ Failed to load beatbox2drums pipeline: {e}")
+                print("[ModelServer.__init__]   Full traceback:")
+                traceback.print_exc()
+                self.beatbox_predictor = None
+        else:
+            print("[ModelServer.__init__] ❌ Conditions NOT met for loading beatbox2drums pipeline:")
+            self.beatbox_predictor = None
+            if not onset_checkpoint_path.exists():
+                print(f"[ModelServer.__init__]   ❌ Onset checkpoint not found at {onset_checkpoint_path}")
+            if not classifier_checkpoint_path.exists():
+                print(f"[ModelServer.__init__]   ❌ Classifier checkpoint not found at {classifier_checkpoint_path}")
+            if Beatbox2DrumsPipeline is None:
+                print("[ModelServer.__init__]   ❌ Beatbox2DrumsPipeline not available (import failed)")
+            print("[ModelServer.__init__]   Using mock predictions for beatbox2drums")
+
+        print(f"[ModelServer.__init__] Final beatbox_predictor status: {self.beatbox_predictor is not None}")
+        print("[ModelServer.__init__] ========================================")
 
     async def predict_melody(self, audio_features: Dict[str, Any]) -> Track:
         """
@@ -139,10 +195,6 @@ class ModelServer:
         """
         print("[ModelServer.predict_melody] ========================================")
         print(f"[ModelServer.predict_melody] Called with audio_features keys: {list(audio_features.keys())}")
-
-        # Lazy-load model on first use
-        self._ensure_model_loaded()
-
         print(f"[ModelServer.predict_melody] Predictor is None: {self.predictor is None}")
 
         # Handle invalid or missing inputs
@@ -220,10 +272,139 @@ class ModelServer:
             return self._mock_melody(audio_features)
 
 
-    async def predict_drums(self, audio_features: Dict[str, Any]) -> Track:
+    async def predict_drums(self, audio_features: Dict[str, Any], return_visualization: bool = False):
         """
-        Predict drum pattern from beatbox audio features (mock only for now).
+        Predict drum pattern from beatbox audio features.
+        Uses trained CNN pipeline if available; otherwise falls back to mock predictions.
+
+        Returns:
+            Tuple of (Track, Optional[visualization_data dict])
         """
+        print("[ModelServer.predict_drums] ========================================")
+        print(f"[ModelServer.predict_drums] Called with audio_features keys: {list(audio_features.keys())}")
+        print(f"[ModelServer.predict_drums] Beatbox predictor is None: {self.beatbox_predictor is None}")
+
+        # Handle invalid or missing inputs
+        if not audio_features:
+            print("[ModelServer.predict_drums] ⚠️ Missing audio features, using mock.")
+            return self._mock_drums(audio_features), None
+
+        # Try real model if available
+        if self.beatbox_predictor is not None:
+            print("[ModelServer.predict_drums] ✅ Beatbox predictor available - attempting real inference")
+            try:
+                import tempfile
+                import os
+
+                # Get audio file path or create temporary file
+                temp_file = None
+                audio_bytes = audio_features.get("audio_bytes")
+
+                # Prefer audio_bytes if available (creates reliable temp file)
+                if audio_bytes:
+                    print(f"[ModelServer.predict_drums]   Saving audio bytes ({len(audio_bytes)} bytes) to temp file")
+                    temp_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                    temp_file.write(audio_bytes)
+                    temp_file.close()
+                    audio_path = temp_file.name
+                    print(f"[ModelServer.predict_drums]   Temp file created: {audio_path}")
+                else:
+                    # Fall back to saved audio_path if audio_bytes not available
+                    audio_path = audio_features.get("audio_path")
+                    print(f"[ModelServer.predict_drums]   Using saved audio path: {audio_path}")
+
+                if audio_path and os.path.exists(audio_path):
+                    print(f"[ModelServer.predict_drums]   Using audio file: {audio_path}")
+
+                    # Call pipeline to get drum hits
+                    drum_hits = self.beatbox_predictor.predict(audio_path)
+
+                    print(f"[ModelServer.predict_drums]   ✅ Generated {len(drum_hits)} drum hits from trained model")
+
+                    # Convert drum hits to SampleEvent format
+                    samples = []
+                    for hit in drum_hits:
+                        sample_event = SampleEvent(
+                            sample=hit.drum_type,  # 'kick', 'snare', or 'hihat'
+                            start=float(hit.time)
+                        )
+                        samples.append(sample_event)
+
+                    # Build visualization data if requested
+                    visualization_data = None
+                    if return_visualization and drum_hits:
+                        import librosa
+                        import numpy as np
+
+                        # Load audio for waveform
+                        audio, sr = librosa.load(audio_path, sr=16000, mono=True)
+                        duration = len(audio) / sr
+
+                        # Downsample waveform for visualization (every 100 samples for 16kHz)
+                        downsample_factor = 100
+                        downsampled_waveform = audio[::downsample_factor].tolist()
+
+                        # Create drum hits data
+                        hits_data = []
+                        for hit in drum_hits:
+                            hit_data = {
+                                "time": float(hit.time),
+                                "drum_type": hit.drum_type,
+                                "confidence": float(hit.confidence)
+                            }
+                            # Add probabilities if available
+                            if hit.probabilities:
+                                hit_data["probabilities"] = {
+                                    "kick": float(hit.probabilities.get('kick', 0)),
+                                    "snare": float(hit.probabilities.get('snare', 0)),
+                                    "hihat": float(hit.probabilities.get('hihat', 0))
+                                }
+                            hits_data.append(hit_data)
+
+                        visualization_data = {
+                            "waveform": {
+                                "data": downsampled_waveform,
+                                "sample_rate": sr // downsample_factor,  # Effective sample rate after downsampling
+                                "duration": float(duration)
+                            },
+                            "drum_hits": hits_data,
+                            "num_hits": len(drum_hits)
+                        }
+
+                        print(f"[ModelServer.predict_drums]   ✅ Generated visualization data with {len(drum_hits)} hits")
+
+                    # Clean up temp file if we created one
+                    if temp_file:
+                        try:
+                            os.unlink(temp_file.name)
+                            print(f"[ModelServer.predict_drums]   Cleaned up temp file")
+                        except:
+                            pass
+
+                    if samples:
+                        print(f"[ModelServer.predict_drums]   Returning {len(samples)} drum samples")
+                        return Track(id='drums', instrument=None, notes=None, samples=samples), visualization_data
+                    else:
+                        print("[ModelServer.predict_drums]   ⚠️ No drum hits generated, using mock")
+                        return self._mock_drums(audio_features), None
+                else:
+                    print("[ModelServer.predict_drums]   ⚠️ No valid audio file path available")
+                    return self._mock_drums(audio_features), None
+
+            except Exception as e:
+                print(f"[ModelServer.predict_drums]   ❌ Model inference failed: {e}")
+                print("[ModelServer.predict_drums]   Full traceback:")
+                traceback.print_exc()
+                return self._mock_drums(audio_features), None
+        else:
+            # Fallback to mock predictions
+            print("[ModelServer.predict_drums] ❌ No trained model loaded, using mock.")
+            return self._mock_drums(audio_features), None
+
+    def _mock_drums(self, audio_features: Dict[str, Any]) -> Track:
+        """Fallback drum pattern generator for testing."""
+        print("[ModelServer._mock_drums] Using mock drum pattern generator")
+
         onset_times = audio_features.get("onset_times", [])
         tempo = audio_features.get("tempo", 120)
 
@@ -241,6 +422,7 @@ class ModelServer:
                 sample_type = "hihat"
             samples.append(SampleEvent(sample=sample_type, start=float(start_time)))
 
+        print(f"[ModelServer._mock_drums]   Generated {len(samples)} mock drum samples")
         return Track(id="drums", instrument=None, notes=None, samples=samples)
 
 
