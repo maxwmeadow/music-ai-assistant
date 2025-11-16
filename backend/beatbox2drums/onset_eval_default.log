@@ -1,0 +1,45 @@
+======================================================================
+ONSET DETECTION EVALUATION
+======================================================================
+
+Detector Configuration:
+  Sample rate: 22050 Hz
+  Hop length: 512
+  Method: energy
+  Threshold: 0.3
+  Wait frames: 5
+  Multi-band: False
+  Backtrack: True
+
+Evaluating 50 files from val split...
+
+Processing files:   0%|          | 0/50 [00:00<?, ?it/s]Processing files:   0%|          | 0/50 [00:02<?, ?it/s, avg_f1=0.000]Processing files:   2%|▏         | 1/50 [00:02<02:20,  2.88s/it, avg_f1=0.000]Processing files:   2%|▏         | 1/50 [00:02<02:20,  2.88s/it, avg_f1=0.000]Processing files:   2%|▏         | 1/50 [00:02<02:20,  2.88s/it, avg_f1=0.000]Processing files:   2%|▏         | 1/50 [00:02<02:20,  2.88s/it, avg_f1=0.000]Processing files:   8%|▊         | 4/50 [00:02<00:26,  1.74it/s, avg_f1=0.000]Processing files:   8%|▊         | 4/50 [00:03<00:26,  1.74it/s, avg_f1=0.000]Processing files:   8%|▊         | 4/50 [00:03<00:26,  1.74it/s, avg_f1=0.000]Processing files:   8%|▊         | 4/50 [00:03<00:26,  1.74it/s, avg_f1=0.000]Processing files:   8%|▊         | 4/50 [00:03<00:26,  1.74it/s, avg_f1=0.000]Processing files:   8%|▊         | 4/50 [00:03<00:26,  1.74it/s, avg_f1=0.000]Processing files:  18%|█▊        | 9/50 [00:03<00:08,  4.71it/s, avg_f1=0.000]Processing files:  18%|█▊        | 9/50 [00:03<00:08,  4.71it/s, avg_f1=0.000]Processing files:  18%|█▊        | 9/50 [00:03<00:08,  4.71it/s, avg_f1=0.000]Processing files:  18%|█▊        | 9/50 [00:03<00:08,  4.71it/s, avg_f1=0.000]Processing files:  18%|█▊        | 9/50 [00:03<00:08,  4.71it/s, avg_f1=0.000]Processing files:  26%|██▌       | 13/50 [00:03<00:04,  7.48it/s, avg_f1=0.000]Processing files:  26%|██▌       | 13/50 [00:03<00:04,  7.48it/s, avg_f1=0.000]Processing files:  26%|██▌       | 13/50 [00:03<00:04,  7.48it/s, avg_f1=0.000]Processing files:  26%|██▌       | 13/50 [00:03<00:04,  7.48it/s, avg_f1=0.000]Processing files:  26%|██▌       | 13/50 [00:03<00:04,  7.48it/s, avg_f1=0.000]Processing files:  34%|███▍      | 17/50 [00:03<00:03, 10.31it/s, avg_f1=0.000]Processing files:  34%|███▍      | 17/50 [00:03<00:03, 10.31it/s, avg_f1=0.000]Processing files:  34%|███▍      | 17/50 [00:03<00:03, 10.31it/s, avg_f1=0.000]Processing files:  34%|███▍      | 17/50 [00:03<00:03, 10.31it/s, avg_f1=0.000]Processing files:  34%|███▍      | 17/50 [00:03<00:03, 10.31it/s, avg_f1=0.000]Processing files:  42%|████▏     | 21/50 [00:03<00:02, 13.86it/s, avg_f1=0.000]Processing files:  42%|████▏     | 21/50 [00:03<00:02, 13.86it/s, avg_f1=0.000]Processing files:  42%|████▏     | 21/50 [00:03<00:02, 13.86it/s, avg_f1=0.000]Processing files:  42%|████▏     | 21/50 [00:03<00:02, 13.86it/s, avg_f1=0.000]Processing files:  42%|████▏     | 21/50 [00:03<00:02, 13.86it/s, avg_f1=0.000]Processing files:  50%|█████     | 25/50 [00:03<00:01, 17.35it/s, avg_f1=0.000]Processing files:  50%|█████     | 25/50 [00:03<00:01, 17.35it/s, avg_f1=0.000]Processing files:  50%|█████     | 25/50 [00:03<00:01, 17.35it/s, avg_f1=0.000]Processing files:  50%|█████     | 25/50 [00:03<00:01, 17.35it/s, avg_f1=0.000]Processing files:  50%|█████     | 25/50 [00:03<00:01, 17.35it/s, avg_f1=0.000]Processing files:  58%|█████▊    | 29/50 [00:03<00:01, 19.85it/s, avg_f1=0.000]Processing files:  58%|█████▊    | 29/50 [00:03<00:01, 19.85it/s, avg_f1=0.000]Processing files:  58%|█████▊    | 29/50 [00:03<00:01, 19.85it/s, avg_f1=0.000]Processing files:  58%|█████▊    | 29/50 [00:03<00:01, 19.85it/s, avg_f1=0.000]Processing files:  58%|█████▊    | 29/50 [00:03<00:01, 19.85it/s, avg_f1=0.000]Processing files:  66%|██████▌   | 33/50 [00:03<00:00, 21.82it/s, avg_f1=0.000]Processing files:  66%|██████▌   | 33/50 [00:03<00:00, 21.82it/s, avg_f1=0.000]Processing files:  66%|██████▌   | 33/50 [00:03<00:00, 21.82it/s, avg_f1=0.000]Processing files:  66%|██████▌   | 33/50 [00:03<00:00, 21.82it/s, avg_f1=0.000]Processing files:  66%|██████▌   | 33/50 [00:04<00:00, 21.82it/s, avg_f1=0.000]Processing files:  74%|███████▍  | 37/50 [00:04<00:00, 23.33it/s, avg_f1=0.000]Processing files:  74%|███████▍  | 37/50 [00:04<00:00, 23.33it/s, avg_f1=0.000]Processing files:  74%|███████▍  | 37/50 [00:04<00:00, 23.33it/s, avg_f1=0.000]Processing files:  74%|███████▍  | 37/50 [00:04<00:00, 23.33it/s, avg_f1=0.000]Processing files:  74%|███████▍  | 37/50 [00:04<00:00, 23.33it/s, avg_f1=0.000]Processing files:  82%|████████▏ | 41/50 [00:04<00:00, 26.27it/s, avg_f1=0.000]Processing files:  82%|████████▏ | 41/50 [00:04<00:00, 26.27it/s, avg_f1=0.000]Processing files:  82%|████████▏ | 41/50 [00:04<00:00, 26.27it/s, avg_f1=0.000]Processing files:  82%|████████▏ | 41/50 [00:04<00:00, 26.27it/s, avg_f1=0.000]Processing files:  82%|████████▏ | 41/50 [00:04<00:00, 26.27it/s, avg_f1=0.000]Processing files:  90%|█████████ | 45/50 [00:04<00:00, 27.57it/s, avg_f1=0.000]Processing files:  90%|█████████ | 45/50 [00:04<00:00, 27.57it/s, avg_f1=0.000]Processing files:  90%|█████████ | 45/50 [00:04<00:00, 27.57it/s, avg_f1=0.000]Processing files:  90%|█████████ | 45/50 [00:04<00:00, 27.57it/s, avg_f1=0.000]Processing files:  90%|█████████ | 45/50 [00:04<00:00, 27.57it/s, avg_f1=0.000]Processing files:  98%|█████████▊| 49/50 [00:04<00:00, 29.69it/s, avg_f1=0.000]Processing files:  98%|█████████▊| 49/50 [00:04<00:00, 29.69it/s, avg_f1=0.000]Processing files: 100%|██████████| 50/50 [00:04<00:00, 11.32it/s, avg_f1=0.000]
+
+======================================================================
+ONSET DETECTION EVALUATION RESULTS
+======================================================================
+
+Files evaluated: 50
+Total ground truth onsets: 1,210
+Total detected onsets: 5
+
+Detection Performance:
+  True Positives:  0
+  False Positives: 5
+  False Negatives: 1,210
+
+Metrics:
+  Precision: 0.000 (0.0%)
+  Recall:    0.000 (0.0%)
+  F1 Score:  0.000 (0.0%)
+
+Timing Accuracy (for matched onsets):
+  Mean Error:   0.00ms
+  Median Error: 0.00ms
+
+Per-File Distribution:
+  F1 Score:  min=0.000, mean=0.000, max=0.000
+  Precision: min=0.000, mean=0.000, max=0.000
+  Recall:    min=0.000, mean=0.000, max=0.000
+
+======================================================================
