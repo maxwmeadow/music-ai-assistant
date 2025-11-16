@@ -6,15 +6,26 @@ import { MixerPanel } from "@/components/MixerPanel";
 import { api } from "@/lib/api";
 import { RecorderControls } from "@/components/RecorderControls";
 import { parseTracksFromDSL, ParsedTrack } from "@/lib/dslParser";
-import { Mic, Music, Drum, Play, Square, Sparkles, Sliders, Piano, ChevronDown, ChevronUp } from "lucide-react";
+import { Mic, Music, Drum, Play, Square, Sparkles, Sliders, Piano, ChevronDown, ChevronUp, Undo, Redo } from "lucide-react";
 import { Timeline } from "@/components/Timeline/Timeline";
 import { usePlaybackTime } from "@/hooks/usePlaybackTime";
 import { PianoRoll } from "@/components/PianoRoll/PianoRoll";
 import DetectionTuner from "@/components/DetectionTuner";
 import { compileIR, VisualizationData } from "@/lib/hum2melody-api";
+import { useHistory } from "@/hooks/useHistory";
+import { KeyboardShortcuts } from "@/components/KeyboardShortcuts";
 
 export default function Home() {
-  const [code, setCode] = useState("// Your generated music code will appear here...");
+  const { pushHistory, undo, redo, canUndo, canRedo, currentState: code } = useHistory("// Your generated music code will appear here...");
+
+  // Helper to update code and push to history
+  const setCode = (newCode: string) => {
+    pushHistory(newCode);
+  };
+
+  // Keyboard shortcuts modal state
+  const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
+
   const [loadingTest, setLoadingTest] = useState(false);
   const [loadingRun, setLoadingRun] = useState(false);
   const [loadingPlay, setLoadingPlay] = useState(false);
@@ -286,8 +297,51 @@ export default function Home() {
     };
   }, [isResizing]);
 
+  // Keyboard shortcuts for undo/redo and help
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Check if we're in an input/textarea (don't trigger shortcuts while typing)
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        return;
+      }
+
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
+
+      // Show keyboard shortcuts: ?
+      if (e.key === '?' && !ctrlOrCmd) {
+        e.preventDefault();
+        setShowKeyboardShortcuts(true);
+      }
+
+      // Undo: Ctrl+Z / Cmd+Z
+      if (ctrlOrCmd && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+        showToast('Undo');
+      }
+
+      // Redo: Ctrl+Y / Cmd+Y or Ctrl+Shift+Z / Cmd+Shift+Z
+      if ((ctrlOrCmd && e.key === 'y') || (ctrlOrCmd && e.shiftKey && e.key === 'z')) {
+        e.preventDefault();
+        redo();
+        showToast('Redo');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undo, redo]);
+
   return (
     <div className="h-screen flex flex-col bg-[#1a1a1a] overflow-hidden">
+      {/* Keyboard Shortcuts Modal */}
+      <KeyboardShortcuts
+        isOpen={showKeyboardShortcuts}
+        onClose={() => setShowKeyboardShortcuts(false)}
+      />
+
       {/* Detection Tuner Modal */}
       {tuningMode && visualizationData && sessionId && currentIR && (
         <DetectionTuner
@@ -415,6 +469,26 @@ export default function Home() {
             className="px-4 py-2 bg-[#2a2a2a] hover:bg-[#333] disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors border border-gray-700"
           >
             {loadingRun ? "Compiling..." : "Compile"}
+          </button>
+        </div>
+
+        {/* Undo/Redo Controls */}
+        <div className="flex items-center gap-2 border-r border-gray-700 pr-4">
+          <button
+            disabled={!canUndo}
+            onClick={undo}
+            className="flex items-center justify-center w-9 h-9 bg-[#2a2a2a] hover:bg-[#333] disabled:opacity-30 disabled:cursor-not-allowed text-white rounded-lg transition-colors border border-gray-700"
+            title="Undo (Ctrl+Z)"
+          >
+            <Undo className="w-4 h-4" />
+          </button>
+          <button
+            disabled={!canRedo}
+            onClick={redo}
+            className="flex items-center justify-center w-9 h-9 bg-[#2a2a2a] hover:bg-[#333] disabled:opacity-30 disabled:cursor-not-allowed text-white rounded-lg transition-colors border border-gray-700"
+            title="Redo (Ctrl+Y)"
+          >
+            <Redo className="w-4 h-4" />
           </button>
         </div>
 
