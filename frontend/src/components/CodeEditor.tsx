@@ -6,9 +6,9 @@ import type * as Monaco from 'monaco-editor';
 import { getInstrumentsByCategory, type Instrument } from "@/lib/instrumentCatalog";
 
 export function CodeEditor({
-                               value,
-                               onChange,
-                           }: {
+    value,
+    onChange,
+}: {
     value: string;
     onChange: (v: string) => void;
 }) {
