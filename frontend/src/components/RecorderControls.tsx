@@ -6,12 +6,15 @@ import { AudioRecorder } from "@/lib/audioRecorder";
 import { WaveformCanvas } from "./WaveformCanvas";
 import { processAudioBlob } from "@/lib/audioProcessing";
 import { api } from "@/lib/api";
+import DrumOnsetVisualizer from "./DrumOnsetVisualizer";
 
 interface RecorderControlsProps {
     onMelodyGenerated?: (ir: any) => void;
+    mode?: 'melody' | 'drums';
+    onVisualizationClose?: () => void;
 }
 
-export function RecorderControls({ onMelodyGenerated }: RecorderControlsProps = { onMelodyGenerated: undefined }) {
+export function RecorderControls({ onMelodyGenerated, mode = 'melody', onVisualizationClose }: RecorderControlsProps = { onMelodyGenerated: undefined, mode: 'melody', onVisualizationClose: undefined }) {
     const [recorder, setRecorder] = useState<AudioRecorder | null>(null);
     const [isRecording, setIsRecording] = useState(false);
     const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
@@ -20,6 +23,7 @@ export function RecorderControls({ onMelodyGenerated }: RecorderControlsProps = 
     const [busy, setBusy] = useState(false);
     const [status, setStatus] = useState<string>("Idle");
     const audioRef = useRef<HTMLAudioElement | null>(null);
+    const [visualization, setVisualization] = useState<any | null>(null);
 
     useEffect(() => {
         return () => {
@@ -97,8 +101,9 @@ export function RecorderControls({ onMelodyGenerated }: RecorderControlsProps = 
 
             setStatus("Sending to model...");
 
-            // Call the /hum2melody endpoint
-            const response = await api("/hum2melody", {
+            // Call the appropriate endpoint based on mode
+            const endpoint = mode === 'drums' ? '/beatbox2drums' : '/hum2melody';
+            const response = await api(endpoint, {
                 method: "POST",
                 body: formData,
             });
@@ -115,8 +120,14 @@ export function RecorderControls({ onMelodyGenerated }: RecorderControlsProps = 
             console.log("[RecorderControls] Has session_id?", !!result.session_id);
             console.log("[RecorderControls] Has ir?", !!result.ir);
 
-            const noteCount = result.metadata?.num_notes || result.visualization?.segments?.length || 0;
-            setStatus(`Generated ${noteCount} notes (${result.metadata?.model_used || 'unknown'} model)`);
+            const noteCount = result.metadata?.num_notes || result.metadata?.num_samples || result.visualization?.segments?.length || 0;
+            setStatus(`Generated ${noteCount} ${mode === 'drums' ? 'hits' : 'notes'} (${result.metadata?.model_used || 'unknown'} model)`);
+
+            // Show visualization modal for drums if available
+            if (mode === 'drums' && result.visualization) {
+                console.log("[RecorderControls] Setting drum visualization data");
+                setVisualization(result.visualization);
+            }
 
             // Callback with the full result (includes IR, visualization, session_id)
             if (onMelodyGenerated) {
@@ -166,7 +177,7 @@ export function RecorderControls({ onMelodyGenerated }: RecorderControlsProps = 
                     disabled={!lastBlob || busy}
                     className="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                    {busy ? "Processing..." : "🎵 Generate Melody"}
+                    {busy ? "Processing..." : (mode === 'drums' ? "🥁 Generate Drums" : "🎵 Generate Melody")}
                 </button>
             </div>
 
@@ -184,6 +195,20 @@ export function RecorderControls({ onMelodyGenerated }: RecorderControlsProps = 
 
             {/* Hidden audio element for playback */}
             <audio ref={audioRef} style={{ display: "none" }} />
+
+            {/* Drum Onset Visualization Modal */}
+            {visualization && mode === 'drums' && (
+                <DrumOnsetVisualizer
+                    visualization={visualization}
+                    onClose={() => {
+                        setVisualization(null);
+                        // Notify parent to close the recorder modal too
+                        if (onVisualizationClose) {
+                            onVisualizationClose();
+                        }
+                    }}
+                />
+            )}
         </div>
     );
 }

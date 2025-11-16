@@ -207,9 +207,13 @@ export default function Home() {
       showToast("Failed to process melody");
     }
 
-    // Close recorder after generation
-    setShowRecorder(false);
-    setRecordingMode(null);
+    // Close recorder after generation, UNLESS it's drums with visualization
+    // (drums visualization modal is rendered inside RecorderControls)
+    const isDrumsWithVisualization = recordingMode === 'drums' && result.visualization;
+    if (!isDrumsWithVisualization) {
+      setShowRecorder(false);
+      setRecordingMode(null);
+    }
   };
 
   const applyIRAndCompile = async (ir: any) => {
@@ -336,7 +340,14 @@ export default function Home() {
                 </svg>
               </button>
             </div>
-            <RecorderControls onMelodyGenerated={handleMelodyGenerated} />
+            <RecorderControls
+              onMelodyGenerated={handleMelodyGenerated}
+              mode={recordingMode || 'melody'}
+              onVisualizationClose={() => {
+                setShowRecorder(false);
+                setRecordingMode(null);
+              }}
+            />
           </div>
         </div>
       )}

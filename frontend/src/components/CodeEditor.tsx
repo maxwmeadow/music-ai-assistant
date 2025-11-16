@@ -151,9 +151,8 @@ export function CodeEditor({
         );
 
         return () => {
-            if (commandId && editorRef.current) {
-                editorRef.current.removeCommand(commandId);
-            }
+            // Commands are automatically cleaned up when editor is disposed
+            // No manual cleanup needed for commandId
         };
     }, []);
 
