@@ -151,8 +151,8 @@ export function CodeEditor({
         );
 
         return () => {
+            // Cleanup: Monaco editor doesn't have removeCommand API
             // Commands are automatically cleaned up when editor is disposed
-            // No manual cleanup needed for commandId
         };
     }, []);
 

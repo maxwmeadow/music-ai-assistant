@@ -83,58 +83,36 @@ class ModelServer:
     Now integrates the trained model if available, but falls back to mock logic.
     """
 
-    def __init__(self):
-        """Initialize model server and optionally load trained model"""
+    def __init__(self, preload: bool = True):
+        """Initialize model server with optional preloading
+
+        Args:
+            preload: If True, load model immediately. If False, lazy-load on first use.
+        """
         print("[ModelServer.__init__] ========================================")
-        print("[ModelServer.__init__] Initializing ModelServer")
+        print(f"[ModelServer.__init__] Initializing ModelServer (preload={preload})")
 
-        checkpoint_path = Path("hum2melody/checkpoints/combined_hum2melody_full.pth")
-        print(f"[ModelServer.__init__]   Checkpoint path: {checkpoint_path}")
-        print(f"[ModelServer.__init__]   Checkpoint path (absolute): {checkpoint_path.absolute()}")
-        print(f"[ModelServer.__init__]   Checkpoint exists: {checkpoint_path.exists()}")
+        # Store checkpoint path but don't load the model yet
+        self.checkpoint_path = Path("hum2melody/checkpoints/combined_hum2melody_full.pth")
+        print(f"[ModelServer.__init__]   Checkpoint path: {self.checkpoint_path}")
+        print(f"[ModelServer.__init__]   Checkpoint path (absolute): {self.checkpoint_path.absolute()}")
+        print(f"[ModelServer.__init__]   Checkpoint exists: {self.checkpoint_path.exists()}")
 
-        if checkpoint_path.exists():
-            size_mb = checkpoint_path.stat().st_size / (1024 * 1024)
+        if self.checkpoint_path.exists():
+            size_mb = self.checkpoint_path.stat().st_size / (1024 * 1024)
             print(f"[ModelServer.__init__]   Checkpoint size: {size_mb:.1f} MB")
 
-        print(f"[ModelServer.__init__]   ChunkedHybridHum2Melody is None: {ChunkedHybridHum2Melody is None}")
-        print(f"[ModelServer.__init__]   Checkpoint exists: {checkpoint_path.exists()}")
-
-        if ChunkedHybridHum2Melody is not None and checkpoint_path.exists():
-            print("[ModelServer.__init__] ✅ Both conditions met - attempting to load model")
-            try:
-                print(f"[ModelServer.__init__]   Creating ChunkedHybridHum2Melody instance...")
-                print(f"[ModelServer.__init__]   Args: checkpoint={checkpoint_path}, device=cpu")
-
-                self.predictor = ChunkedHybridHum2Melody(
-                    checkpoint_path=str(checkpoint_path),
-                    device='cpu',
-                    onset_high=0.30,
-                    onset_low=0.10,
-                    offset_high=0.30,
-                    offset_low=0.10
-                )
-                print(f"[ModelServer.__init__]   ✅ Model loaded successfully!")
-                print(f"[ModelServer.__init__]   Predictor device: {self.predictor.device}")
-            except Exception as e:
-                print(f"[ModelServer.__init__]   ❌ Failed to load model: {e}")
-                print("[ModelServer.__init__]   Full traceback:")
-                traceback.print_exc()
-                self.predictor = None
-        else:
-            print("[ModelServer.__init__] ❌ Conditions NOT met for loading model:")
-            self.predictor = None
-            if not checkpoint_path.exists():
-                print(f"[ModelServer.__init__]   ❌ No trained model found at {checkpoint_path}")
-            if ChunkedHybridHum2Melody is None:
-                print("[ModelServer.__init__]   ❌ ChunkedHybridHum2Melody not available (import failed)")
-            print("[ModelServer.__init__]   Using mock predictions")
+        # Model will be loaded on first use (lazy loading) or immediately if preload=True
+        self.predictor = None
+        self._model_loading_attempted = False
 
         # Define scales for fallback
         self.c_major_scale = [60, 62, 64, 65, 67, 69, 71, 72]
         self.a_minor_scale = [57, 59, 60, 62, 64, 65, 67, 69]
 
-        print(f"[ModelServer.__init__] Final predictor status: {self.predictor is not None}")
+        if preload:
+            print("[ModelServer.__init__] Preloading model on startup...")
+            self._ensure_model_loaded()
 
         # Initialize beatbox2drums pipeline
         print("[ModelServer.__init__] ========================================")
@@ -186,7 +164,49 @@ class ModelServer:
             print("[ModelServer.__init__]   Using mock predictions for beatbox2drums")
 
         print(f"[ModelServer.__init__] Final beatbox_predictor status: {self.beatbox_predictor is not None}")
+        print("[ModelServer.__init__] ✅ Initialized")
         print("[ModelServer.__init__] ========================================")
+
+    def _ensure_model_loaded(self):
+        """Lazy-load the model on first use to save memory on startup"""
+        if self._model_loading_attempted:
+            return  # Already tried to load (success or failure)
+
+        self._model_loading_attempted = True
+        print("[ModelServer._ensure_model_loaded] ========================================")
+        print("[ModelServer._ensure_model_loaded] Attempting lazy model load...")
+
+        if ChunkedHybridHum2Melody is not None and self.checkpoint_path.exists():
+            print("[ModelServer._ensure_model_loaded] ✅ Both conditions met - loading model")
+            try:
+                print(f"[ModelServer._ensure_model_loaded]   Creating ChunkedHybridHum2Melody instance...")
+                print(f"[ModelServer._ensure_model_loaded]   Args: checkpoint={self.checkpoint_path}, device=cpu")
+
+                self.predictor = ChunkedHybridHum2Melody(
+                    checkpoint_path=str(self.checkpoint_path),
+                    device='cpu',
+                    onset_high=0.30,
+                    onset_low=0.10,
+                    offset_high=0.30,
+                    offset_low=0.10
+                )
+                print(f"[ModelServer._ensure_model_loaded]   ✅ Model loaded successfully!")
+                print(f"[ModelServer._ensure_model_loaded]   Predictor device: {self.predictor.device}")
+            except Exception as e:
+                print(f"[ModelServer._ensure_model_loaded]   ❌ Failed to load model: {e}")
+                print("[ModelServer._ensure_model_loaded]   Full traceback:")
+                traceback.print_exc()
+                self.predictor = None
+        else:
+            print("[ModelServer._ensure_model_loaded] ❌ Conditions NOT met for loading model:")
+            if not self.checkpoint_path.exists():
+                print(f"[ModelServer._ensure_model_loaded]   ❌ No trained model found at {self.checkpoint_path}")
+            if ChunkedHybridHum2Melody is None:
+                print("[ModelServer._ensure_model_loaded]   ❌ ChunkedHybridHum2Melody not available (import failed)")
+            print("[ModelServer._ensure_model_loaded]   Using mock predictions")
+
+        print(f"[ModelServer._ensure_model_loaded] Final predictor status: {self.predictor is not None}")
+        print("[ModelServer._ensure_model_loaded] ========================================")
 
     async def predict_melody(self, audio_features: Dict[str, Any]) -> Track:
         """
@@ -195,6 +215,10 @@ class ModelServer:
         """
         print("[ModelServer.predict_melody] ========================================")
         print(f"[ModelServer.predict_melody] Called with audio_features keys: {list(audio_features.keys())}")
+
+        # Lazy-load model on first use
+        self._ensure_model_loaded()
+
         print(f"[ModelServer.predict_melody] Predictor is None: {self.predictor is None}")
 
         # Handle invalid or missing inputs

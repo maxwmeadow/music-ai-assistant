@@ -92,13 +92,17 @@ export async function uploadWithVisualization(
     instrument?: string;
     saveTrainingData?: boolean;
     returnVisualization?: boolean;
+    asyncMode?: boolean;  // New: Use async processing for long requests
   } = {}
-): Promise<UploadResponse> {
+): Promise<UploadResponse | { status: 'accepted'; job_id: string; message: string }> {
   const formData = new FormData();
   formData.append('audio', audioBlob, 'recording.wav');
   formData.append('instrument', options.instrument || 'piano/grand_piano_k');
   formData.append('save_training_data', String(options.saveTrainingData !== false));
-  formData.append('return_visualization', String(options.returnVisualization !== false));
+  // Default to false in production for better performance
+  formData.append('return_visualization', String(options.returnVisualization === true));
+  // Enable async mode by default to avoid timeout issues
+  formData.append('async_mode', String(options.asyncMode !== false));
 
   // Add detection parameters
   formData.append('onset_high', String(params.onsetHigh ?? 0.30));
@@ -117,6 +121,75 @@ export async function uploadWithVisualization(
   }
 
   return response.json();
+}
+
+/**
+ * Poll job status for async processing
+ */
+export async function pollJobStatus(jobId: string): Promise<{
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  result?: UploadResponse;
+  error?: string;
+  progress: number;
+}> {
+  const response = await fetch(`${API_BASE}/jobs/${jobId}`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to poll job: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Upload audio and wait for results (handles async polling automatically)
+ */
+export async function uploadAndWait(
+  audioBlob: Blob,
+  params: DetectionParams = {},
+  options: {
+    instrument?: string;
+    saveTrainingData?: boolean;
+    returnVisualization?: boolean;
+    onProgress?: (progress: number) => void;
+  } = {}
+): Promise<UploadResponse> {
+  // Upload with async mode enabled
+  const uploadResponse = await uploadWithVisualization(audioBlob, params, {
+    ...options,
+    asyncMode: true
+  });
+
+  // Check if we got a job_id (async mode)
+  if ('job_id' in uploadResponse) {
+    const jobId = uploadResponse.job_id;
+    console.log('[API] Job created:', jobId, '- polling for results...');
+
+    // Poll until complete
+    while (true) {
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Poll every 1 second
+
+      const jobStatus = await pollJobStatus(jobId);
+
+      if (options.onProgress) {
+        options.onProgress(jobStatus.progress);
+      }
+
+      if (jobStatus.status === 'completed') {
+        console.log('[API] Job completed');
+        return jobStatus.result!;
+      }
+
+      if (jobStatus.status === 'failed') {
+        throw new Error(`Job failed: ${jobStatus.error}`);
+      }
+
+      // Continue polling if pending or processing
+    }
+  }
+
+  // Synchronous response (shouldn't happen with async mode enabled)
+  return uploadResponse as UploadResponse;
 }
 
 /**

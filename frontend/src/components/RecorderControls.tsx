@@ -7,6 +7,7 @@ import { WaveformCanvas } from "./WaveformCanvas";
 import { processAudioBlob } from "@/lib/audioProcessing";
 import { api } from "@/lib/api";
 import DrumOnsetVisualizer from "./DrumOnsetVisualizer";
+import { uploadAndWait } from "@/lib/hum2melody-api";
 
 interface RecorderControlsProps {
     onMelodyGenerated?: (ir: any) => void;
@@ -93,27 +94,48 @@ export function RecorderControls({ onMelodyGenerated, mode = 'melody', onVisuali
             // Convert blob to WAV format for best compatibility
             const { wav } = await processAudioBlob(lastBlob, 16000);
 
-            // Create form data with visualization request
-            const formData = new FormData();
-            formData.append("audio", wav, "recording.wav");
-            formData.append("save_training_data", "true");
-            formData.append("return_visualization", "true");
+            setStatus("Uploading to server...");
 
-            setStatus("Sending to model...");
+            let result;
 
-            // Call the appropriate endpoint based on mode
-            const endpoint = mode === 'drums' ? '/beatbox2drums' : '/hum2melody';
-            const response = await api(endpoint, {
-                method: "POST",
-                body: formData,
-            });
+            if (mode === 'drums') {
+                // For drums, use direct API call to /beatbox2drums
+                setStatus("Sending to model...");
 
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`Server error: ${response.status} - ${errorText}`);
+                const formData = new FormData();
+                formData.append("audio", new Blob([wav], { type: "audio/wav" }), "recording.wav");
+                formData.append("save_training_data", "true");
+                formData.append("return_visualization", "true");
+
+                const response = await api('/beatbox2drums', {
+                    method: "POST",
+                    body: formData,
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Server error: ${response.status} - ${errorText}`);
+                }
+
+                result = await response.json();
+            } else {
+                // For melody, use the new uploadAndWait function with async polling
+                result = await uploadAndWait(
+                    wav,
+                    {}, // Default detection params
+                    {
+                        instrument: 'piano/grand_piano_k',
+                        saveTrainingData: true,
+                        returnVisualization: false, // Disable for now to avoid timeout
+                        onProgress: (progress) => {
+                            // Update status with progress
+                            if (progress < 100) {
+                                setStatus(`Processing... ${progress}%`);
+                            }
+                        }
+                    }
+                );
             }
-
-            const result = await response.json();
 
             console.log("[RecorderControls] Model result:", result);
             console.log("[RecorderControls] Has visualization?", !!result.visualization);
@@ -139,7 +161,7 @@ export function RecorderControls({ onMelodyGenerated, mode = 'melody', onVisuali
 
         } catch (err) {
             console.error("Failed to process audio:", err);
-            setStatus(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            setStatus(`✗ Failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
             setBusy(false);
         }
     };
