@@ -289,6 +289,9 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
 
     onSeek(Math.max(0, clickedTime));
     setIsDraggingPlayhead(true);
+
+    // Deselect any selected note when clicking blank area
+    setSelectedNote(null);
   };
 
   const handlePlayheadDrag = (e: MouseEvent) => {
