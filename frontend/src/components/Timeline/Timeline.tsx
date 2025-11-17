@@ -2,14 +2,29 @@
 
 import { useState, useRef, useEffect, JSX } from "react";
 import { ParsedTrack } from "@/lib/dslParser";
-
-interface TimelineNote {
-  pitch: number;
-  start: number;
-  duration: number;
-  velocity: number;
-  isChord?: boolean;
-}
+import {
+  getTempoFromDSL,
+  beatsToSeconds,
+  secondsToBeats,
+  getGridSubdivision,
+  pitchToNote,
+  parseNotesFromDSL
+} from "./timelineHelpers";
+import {
+  handleDeleteNotes,
+  handleCopyNotes,
+  handlePasteNotes,
+  handleNoteDrag,
+  handleNoteResize
+} from "./timelineHandlers";
+import {
+  TimelineNote,
+  SelectedNote,
+  DraggingNote,
+  ResizingNote,
+  CopiedNotes,
+  SNAP_OPTIONS
+} from "./types";
 
 interface TimelineProps {
   tracks: ParsedTrack[];
@@ -23,156 +38,24 @@ interface TimelineProps {
 
 export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime, onSeek, isLoading = false }: TimelineProps) {
   const [zoom, setZoom] = useState(50);
-  const [selectedNote, setSelectedNote] = useState<{ trackId: string, noteIndex: number } | null>(null);
-  const [draggingNote, setDraggingNote] = useState<{ trackId: string, noteIndex: number, startX: number, initialStart: number } | null>(null);
-  const [resizingNote, setResizingNote] = useState<{ trackId: string, noteIndex: number, startX: number, initialDuration: number } | null>(null);
+  const [selectedNotes, setSelectedNotes] = useState<SelectedNote[]>([]);
+  const [lastSelectedNote, setLastSelectedNote] = useState<SelectedNote | null>(null); // For shift-select range
+  const [draggingNote, setDraggingNote] = useState<DraggingNote | null>(null);
+  const [resizingNote, setResizingNote] = useState<ResizingNote | null>(null);
   const [isDraggingPlayhead, setIsDraggingPlayhead] = useState(false);
   const timelineRef = useRef<HTMLDivElement>(null);
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [snapValue, setSnapValue] = useState(0.25);
+  const [copiedNotes, setCopiedNotes] = useState<CopiedNotes | null>(null);
 
-  const getTempoFromDSL = (): number => {
-    const tempoMatch = dslCode.match(/tempo\((\d+)\)/);
-    return tempoMatch ? parseInt(tempoMatch[1]) : 120;
-  };
-
-  const beatsToSeconds = (beats: number): number => {
-    const tempo = getTempoFromDSL();
-    return (beats * 60) / tempo;
-  };
-
-  const secondsToBeats = (seconds: number): number => {
-    const tempo = getTempoFromDSL();
-    return (seconds * tempo) / 60;
-  };
-
-  const snapToGrid = (beats: number): number => {
-    if (!snapEnabled) return beats;
-    return Math.round(beats / snapValue) * snapValue;
-  };
-
-  /**
-   * Determines grid subdivision level based on snap value (when enabled) or zoom
-   * Returns: { subdivision: number }
-   */
-  const getGridSubdivision = (zoom: number): { subdivision: number } => {
-    // If snap is enabled, use the snap value to determine grid lines
-    if (snapEnabled) {
-      // Use exactly the snap value for grid spacing
-      return { subdivision: snapValue };
-    }
-
-    // Otherwise, use zoom-based grid (original behavior)
-    if (zoom < 60) {
-      // Very zoomed out - only show beats (quarters)
-      return { subdivision: 1 };
-    } else if (zoom < 120) {
-      // Medium zoom - show eighths
-      return { subdivision: 0.5 };
-    } else {
-      // Very zoomed in - show sixteenths
-      return { subdivision: 0.25 };
-    }
-  };
-
-  const SNAP_OPTIONS = [
-    { label: '1/4 (Whole)', value: 4 },
-    { label: '1/2 (Half)', value: 2 },
-    { label: '1 (Quarter)', value: 1 },
-    { label: '1/2 (8th)', value: 0.5 },
-    { label: '1/4 (16th)', value: 0.25 },
-    { label: '1/8 (32nd)', value: 0.125 },
-  ];
-
-  const parseNotesFromDSL = (trackId: string): TimelineNote[] => {
-    const trackMatch = dslCode.match(new RegExp(`track\\("${trackId}"\\)\\s*{([^}]+)}`, 's'));
-    if (!trackMatch) return [];
-
-    const trackContent = trackMatch[1];
-    const notes: TimelineNote[] = [];
-
-    // Parse regular notes
-    const noteMatches = trackContent.matchAll(/note\("([^"]+)",\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g);
-    for (const match of noteMatches) {
-      const [, noteName, start, duration, velocity] = match;
-      const pitch = noteToPitch(noteName);
-
-      notes.push({
-        pitch,
-        start: secondsToBeats(parseFloat(start)),  // Convert to beats
-        duration: secondsToBeats(parseFloat(duration)),  // Convert to beats
-        velocity: parseFloat(velocity)
-      });
-    }
-
-    // Parse chords
-    const chordMatches = trackContent.matchAll(/chord\(\[([^\]]+)\],\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g);
-    for (const match of chordMatches) {
-      const [, notesStr, start, duration, velocity] = match;
-      const chordNotes = notesStr.split(',').map(n => n.trim().replace(/"/g, ''));
-      const rootPitch = noteToPitch(chordNotes[0]);
-
-      notes.push({
-        pitch: rootPitch,
-        start: secondsToBeats(parseFloat(start)),  // Convert to beats
-        duration: secondsToBeats(parseFloat(duration)),  // Convert to beats
-        velocity: parseFloat(velocity),
-        isChord: true
-      });
-    }
-
-    return notes.sort((a, b) => a.start - b.start);
-  };
-
-  const noteToPitch = (noteName: string): number => {
-    const noteMap: Record<string, number> = {
-      'C': 0, 'C#': 1, 'D': 2, 'D#': 3, 'E': 4, 'F': 5,
-      'F#': 6, 'G': 7, 'G#': 8, 'A': 9, 'A#': 10, 'B': 11
-    };
-    const match = noteName.match(/([A-G]#?)(\d+)/);
-    if (!match) return 60;
-    const [, note, octave] = match;
-    return (parseInt(octave) + 1) * 12 + noteMap[note];
-  };
-
-  const pitchToNote = (pitch: number): string => {
-    const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-    const octave = Math.floor(pitch / 12) - 1;
-    const note = notes[pitch % 12];
-    return `${note}${octave}`;
-  };
-
-  const updateDSLWithNewNotes = (trackId: string, updatedNotes: TimelineNote[]) => {
-    const trackMatch = dslCode.match(new RegExp(`(track\\("${trackId}"\\)\\s*{)([^}]+)(})`, 's'));
-    if (!trackMatch) return;
-
-    const [fullMatch, opening, , closing] = trackMatch;
-
-    const instrumentMatch = trackMatch[2].match(/instrument\("([^"]+)"\)/);
-    const instrumentLine = instrumentMatch ? `  instrument("${instrumentMatch[1]}")\n` : '';
-
-    // Generate new note lines, converting beats back to seconds
-    const noteLines = updatedNotes.map(note => {
-      const noteName = pitchToNote(note.pitch);
-      const startSeconds = beatsToSeconds(note.start);
-      const durationSeconds = beatsToSeconds(note.duration);
-
-      if (note.isChord) {
-        return `  chord(["${noteName}"], ${startSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${note.velocity.toFixed(1)})`;
-      }
-      return `  note("${noteName}", ${startSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${note.velocity.toFixed(1)})`;
-    }).join('\n');
-
-    const newTrackContent = `${opening}\n${instrumentLine}${noteLines}\n${closing}`;
-    const newDSL = dslCode.replace(fullMatch, newTrackContent);
-
-    onCodeChange(newDSL);
-  };
-
+  const tempo = getTempoFromDSL(dslCode);
 
   const handleNoteMouseDown = (e: React.MouseEvent, trackId: string, noteIndex: number, isResize: boolean) => {
     e.stopPropagation();
-    const notes = parseNotesFromDSL(trackId);
+    const notes = parseNotesFromDSL(dslCode, trackId, tempo);
+    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+    const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
+    const shift = e.shiftKey;
 
     if (isResize) {
       setResizingNote({
@@ -189,30 +72,43 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
         initialStart: notes[noteIndex].start
       });
     }
-    setSelectedNote({ trackId, noteIndex });
+
+    // Handle multi-selection
+    const clickedNote = { trackId, noteIndex };
+
+    if (ctrlOrCmd) {
+      // Ctrl/Cmd+Click: Toggle selection
+      const isSelected = selectedNotes.some(n => n.trackId === trackId && n.noteIndex === noteIndex);
+      if (isSelected) {
+        setSelectedNotes(selectedNotes.filter(n => !(n.trackId === trackId && n.noteIndex === noteIndex)));
+      } else {
+        setSelectedNotes([...selectedNotes, clickedNote]);
+      }
+      setLastSelectedNote(clickedNote);
+    } else if (shift && lastSelectedNote && lastSelectedNote.trackId === trackId) {
+      // Shift+Click: Select range (only within same track)
+      const trackNotes = notes;
+      const start = Math.min(lastSelectedNote.noteIndex, noteIndex);
+      const end = Math.max(lastSelectedNote.noteIndex, noteIndex);
+      const rangeSelection: SelectedNote[] = [];
+      for (let i = start; i <= end; i++) {
+        rangeSelection.push({ trackId, noteIndex: i });
+      }
+      setSelectedNotes(rangeSelection);
+    } else {
+      // Regular click: Select single note
+      setSelectedNotes([clickedNote]);
+      setLastSelectedNote(clickedNote);
+    }
   };
 
   const handleMouseMove = (e: MouseEvent) => {
     if (draggingNote) {
       const deltaX = e.clientX - draggingNote.startX;
-      const deltaBeats = deltaX / zoom;
-      const rawStart = draggingNote.initialStart + deltaBeats;
-      const newStart = snapToGrid(Math.max(0, rawStart));
-
-      const notes = parseNotesFromDSL(draggingNote.trackId);
-      notes[draggingNote.noteIndex].start = newStart;
-
-      updateDSLWithNewNotes(draggingNote.trackId, notes);
+      handleNoteDrag(deltaX, zoom, draggingNote, dslCode, tempo, snapValue, snapEnabled, onCodeChange);
     } else if (resizingNote) {
       const deltaX = e.clientX - resizingNote.startX;
-      const deltaBeats = deltaX / zoom;
-      const rawDuration = resizingNote.initialDuration + deltaBeats;
-      const newDuration = Math.max(snapValue, snapToGrid(rawDuration));
-
-      const notes = parseNotesFromDSL(resizingNote.trackId);
-      notes[resizingNote.noteIndex].duration = newDuration;
-
-      updateDSLWithNewNotes(resizingNote.trackId, notes);
+      handleNoteResize(deltaX, zoom, resizingNote, dslCode, tempo, snapValue, snapEnabled, onCodeChange);
     }
   };
 
@@ -221,29 +117,19 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
     setResizingNote(null);
   };
 
-  const handleDeleteNote = () => {
-    if (!selectedNote) return;
-
-    const notes = parseNotesFromDSL(selectedNote.trackId);
-    notes.splice(selectedNote.noteIndex, 1);
-    updateDSLWithNewNotes(selectedNote.trackId, notes);
-    setSelectedNote(null);
-  };
-
   const handleTimelineClick = (e: React.MouseEvent) => {
-    // Don't allow interactions while loading
     if (isLoading) return;
-    // Don't interfere with note dragging/resizing
     if (draggingNote || resizingNote) return;
     if (!onSeek || !timelineRef.current) return;
 
     const rect = timelineRef.current.getBoundingClientRect();
     const clickX = e.clientX - rect.left + timelineRef.current.scrollLeft;
     const clickedBeats = clickX / zoom;
-    const clickedTime = beatsToSeconds(clickedBeats);
+    const clickedTime = beatsToSeconds(clickedBeats, tempo);
 
     onSeek(Math.max(0, clickedTime));
     setIsDraggingPlayhead(true);
+    setSelectedNotes([]);
   };
 
   const handlePlayheadDrag = (e: MouseEvent) => {
@@ -252,7 +138,7 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
     const rect = timelineRef.current.getBoundingClientRect();
     const dragX = e.clientX - rect.left + timelineRef.current.scrollLeft;
     const draggedBeats = dragX / zoom;
-    const draggedTime = beatsToSeconds(draggedBeats);
+    const draggedTime = beatsToSeconds(draggedBeats, tempo);
 
     onSeek(Math.max(0, draggedTime));
   };
@@ -261,6 +147,7 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
     setIsDraggingPlayhead(false);
   };
 
+  // Mouse event listeners
   useEffect(() => {
     if (draggingNote || resizingNote) {
       window.addEventListener('mousemove', handleMouseMove);
@@ -286,22 +173,40 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        return;
+      }
+
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
+
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        handleDeleteNote();
+        e.preventDefault();
+        handleDeleteNotes(selectedNotes, dslCode, tempo, onCodeChange, setSelectedNotes);
+      }
+
+      if (ctrlOrCmd && e.key === 'c') {
+        e.preventDefault();
+        handleCopyNotes(selectedNotes, dslCode, tempo, setCopiedNotes);
+      }
+
+      if (ctrlOrCmd && e.key === 'v') {
+        e.preventDefault();
+        handlePasteNotes(copiedNotes, currentTime, dslCode, tempo, snapValue, snapEnabled, onCodeChange, setSelectedNotes);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedNote]);
+  }, [selectedNotes, copiedNotes, currentTime]);
 
   const maxDuration = tracks.reduce((max, track) => {
-    const notes = parseNotesFromDSL(track.id);
+    const notes = parseNotesFromDSL(dslCode, track.id, tempo);
     const trackDuration = notes.reduce((sum, note) => Math.max(sum, note.start + note.duration), 0);
     return Math.max(max, trackDuration);
   }, 10);
 
-  // Add padding to ensure all notes are visible and scrollable
-  const totalWidth = (maxDuration + 4) * zoom; // Add 4 beats of padding
+  const totalWidth = (maxDuration + 4) * zoom;
 
   return (
     <div className="w-full h-full bg-gray-950 border border-white/10 rounded-xl overflow-hidden flex flex-col relative">
@@ -320,7 +225,7 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
         <h3 className="text-white font-semibold">Timeline Editor</h3>
         <div className="flex items-center gap-4">
           <div className="text-xs text-gray-400">
-            {selectedNote && "Press Delete to remove note"}
+            {selectedNotes.length > 0 && `Press Delete to remove ${selectedNotes.length} note${selectedNotes.length > 1 ? 's' : ''}`}
           </div>
 
           {/* Snap controls */}
@@ -381,22 +286,21 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
           onMouseDown={handleTimelineClick}
         >
           <div className="relative" style={{ width: `${totalWidth}px`, minWidth: `${totalWidth}px` }}>
-            {/* Global playback cursor - spans entire height */}
+            {/* Global playback cursor */}
             <div
               id="red-line"
               className={`absolute top-0 bottom-0 w-[2px] bg-red-500 z-10 hover:bg-red-400 transition-colors ${isDraggingPlayhead ? 'cursor-grabbing bg-red-400' : 'cursor-grab'}`}
-              style={{ left: `${secondsToBeats(currentTime) * zoom}px` }}
+              style={{ left: `${secondsToBeats(currentTime, tempo) * zoom}px` }}
             />
 
             {/* Time ruler */}
             <div className="relative h-8 bg-gray-900 border-b border-white/10">
               {(() => {
-                const { subdivision } = getGridSubdivision(zoom);
+                const { subdivision } = getGridSubdivision(zoom, snapValue, snapEnabled);
                 const totalBeats = Math.ceil(maxDuration);
                 const markers: JSX.Element[] = [];
 
                 for (let beat = 0; beat <= totalBeats; beat += subdivision) {
-                  // Round to avoid floating point errors
                   const roundedBeat = Math.round(beat / subdivision) * subdivision;
                   const bar = Math.floor(roundedBeat / 4) + 1;
                   const beatInBar = (roundedBeat % 4);
@@ -406,7 +310,6 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
                   let borderClass = '';
                   let labelContent = null;
 
-                  // Highlight measure starts with thicker border
                   if (isMeasureStart) {
                     borderClass = 'border-l-2 border-gray-500';
                     labelContent = (
@@ -415,7 +318,6 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
                       </span>
                     );
                   } else if (isBeatStart && subdivision < 1) {
-                    // Show beat labels only when subdivision is smaller than a beat
                     borderClass = 'border-l border-gray-600';
                     labelContent = (
                       <span className="text-xs text-gray-400 absolute top-0.5 left-1">
@@ -423,7 +325,6 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
                       </span>
                     );
                   } else {
-                    // Regular subdivision line
                     borderClass = 'border-l border-gray-700/50';
                   }
 
@@ -444,25 +345,22 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
 
             {/* Track timelines */}
             {tracks.map((track) => {
-              const notes = parseNotesFromDSL(track.id);
+              const notes = parseNotesFromDSL(dslCode, track.id, tempo);
               return (
                 <div key={track.id} className="relative h-20 bg-gray-950 border-b border-white/5">
                   {/* Grid lines */}
                   {(() => {
-                    const { subdivision } = getGridSubdivision(zoom);
+                    const { subdivision } = getGridSubdivision(zoom, snapValue, snapEnabled);
                     const totalBeats = Math.ceil(maxDuration);
                     const gridLines: JSX.Element[] = [];
 
-                    // Draw grid lines at snap subdivision interval
                     for (let beat = 0; beat <= totalBeats; beat += subdivision) {
-                      // Round to avoid floating point errors
                       const roundedBeat = Math.round(beat / subdivision) * subdivision;
                       const isMeasureStart = Math.abs(roundedBeat % 4) < 0.001;
                       const isBeatStart = Math.abs(roundedBeat % 1) < 0.001;
 
                       let borderClass = '';
 
-                      // Highlight measure starts with stronger border
                       if (isMeasureStart) {
                         borderClass = 'border-l border-gray-700';
                       } else if (isBeatStart && subdivision < 1) {
@@ -490,7 +388,7 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
                       className={`absolute top-2 bottom-2 ${note.isChord
                         ? 'bg-blue-600 hover:bg-blue-500'
                         : 'bg-purple-600 hover:bg-purple-500'
-                        } rounded transition-colors ${selectedNote?.trackId === track.id && selectedNote?.noteIndex === idx
+                        } rounded transition-colors ${selectedNotes.some(n => n.trackId === track.id && n.noteIndex === idx)
                           ? 'ring-2 ring-white'
                           : ''
                         } ${draggingNote || resizingNote ? 'cursor-grabbing' : 'cursor-grab'}`}
