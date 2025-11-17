@@ -6,14 +6,15 @@ import { MixerPanel } from "@/components/MixerPanel";
 import { api } from "@/lib/api";
 import { RecorderControls } from "@/components/RecorderControls";
 import { parseTracksFromDSL, ParsedTrack } from "@/lib/dslParser";
-import { Mic, Music, Drum, Play, Square, Sparkles, Sliders, Piano, ChevronDown, ChevronUp, Undo, Redo } from "lucide-react";
+import { Mic, Music, Drum, Play, Square, Sparkles, Sliders, Piano, ChevronDown, Undo, Redo } from "lucide-react";
 import { Timeline } from "@/components/Timeline/Timeline";
-import { usePlaybackTime } from "@/hooks/usePlaybackTime";
 import { PianoRoll } from "@/components/PianoRoll/PianoRoll";
 import DetectionTuner from "@/components/DetectionTuner";
 import { compileIR, VisualizationData } from "@/lib/hum2melody-api";
 import { useHistory } from "@/hooks/useHistory";
 import { KeyboardShortcuts } from "@/components/KeyboardShortcuts";
+import { AudioService } from "@/services/audioService";
+import { DSLService } from "@/services/dslService";
 
 export default function Home() {
   const { pushHistory, undo, redo, canUndo, canRedo, currentState: code } = useHistory("// Your generated music code will appear here...");
@@ -34,7 +35,8 @@ export default function Home() {
   const [tracks, setTracks] = useState<ParsedTrack[]>([]);
   const [trackVolumes, setTrackVolumes] = useState<Record<string, number>>({});
   const [isPlaying, setIsPlaying] = useState(false);
-  const currentTime = usePlaybackTime(isPlaying);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
   const [selectedTrackForPianoRoll, setSelectedTrackForPianoRoll] = useState<string | null>(null);
 
   // Detection Tuning State
@@ -56,6 +58,8 @@ export default function Home() {
     setToast(message);
     setTimeout(() => setToast(null), 3000);
   };
+
+  const calculateMaxDuration = () => DSLService.calculateMaxDuration(code);
 
   const fetchTest = async () => {
     setLoadingTest(true);
@@ -86,15 +90,24 @@ export default function Home() {
       });
 
       const data = await response.json();
-      setExecutableCode(data.meta?.executable_code || "");
+      const execCode = data.meta?.executable_code || "";
+      setExecutableCode(execCode);
 
       const parsedTracks = parseTracksFromDSL(code);
       setTracks(parsedTracks);
+
+      // Preload audio samples
+      if (execCode) {
+        setCurrentTime(0);
+        setIsPlaying(false);
+        await AudioService.preloadSamples(execCode, trackVolumes, setIsLoadingAudio);
+      }
 
       showToast("Code compiled successfully");
     } catch (error) {
       console.error(error);
       showToast("Compilation failed");
+      setIsLoadingAudio(false);
     } finally {
       setLoadingRun(false);
     }
@@ -121,60 +134,46 @@ export default function Home() {
       return;
     }
 
+    if (isLoadingAudio) {
+      showToast("Audio is still loading...");
+      return;
+    }
+
+    AudioService.clearAutoStop();
+
     setLoadingPlay(true);
     setIsPlaying(true);
+
     try {
-      const Tone = await import('tone');
-      (window as any).Tone = Tone;
-      (window as any).__trackVolumes = trackVolumes;
+      await AudioService.initializeTone(trackVolumes);
 
-      eval(executableCode);
+      const transportState = AudioService.getTransportState();
+      const isResuming = transportState && transportState.seconds > 0 && transportState.state === 'paused';
 
+      // Load samples if not already preloaded
+      if (!isResuming && !AudioService.areSamplesPreloaded()) {
+        setIsLoadingAudio(true);
+        eval(executableCode);
+        AudioService.markSamplesPreloaded();
+      }
+
+      AudioService.startTransport();
+
+      // Apply volume settings
       setTimeout(() => {
         Object.entries(trackVolumes).forEach(([trackId, volume]) => {
           handleVolumeChange(trackId, volume);
         });
       }, 100);
 
-      const tempoMatch = code.match(/tempo\((\d+)\)/);
-      const tempo = tempoMatch ? parseInt(tempoMatch[1]) : 120;
+      // Set auto-stop timeout
+      const maxDuration = calculateMaxDuration();
+      const currentPosition = transportState?.seconds || 0;
+      const remainingTime = Math.max(0, maxDuration - currentPosition) + 1.5;
 
-      let maxDuration = 0;
-      const trackRegex = /track\("([^"]+)"\)\s*\{([^}]+)\}/g;
-      let trackMatch;
+      AudioService.setAutoStop(remainingTime, stopAudio);
 
-      while ((trackMatch = trackRegex.exec(code)) !== null) {
-        const trackContent = trackMatch[2];
-        const noteRegex = /note\("([^"]+)",\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g;
-        let noteMatch;
-
-        while ((noteMatch = noteRegex.exec(trackContent)) !== null) {
-          const start = parseFloat(noteMatch[2]);
-          const duration = parseFloat(noteMatch[3]);
-          const endTime = start + duration;
-          maxDuration = Math.max(maxDuration, endTime);
-        }
-
-        const chordRegex = /chord\(\[[^\]]+\],\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g;
-        let chordMatch;
-
-        while ((chordMatch = chordRegex.exec(trackContent)) !== null) {
-          const start = parseFloat(chordMatch[1]);
-          const duration = parseFloat(chordMatch[2]);
-          const endTime = start + duration;
-          maxDuration = Math.max(maxDuration, endTime);
-        }
-      }
-
-      console.log(`[Playback] Calculated duration: ${maxDuration.toFixed(2)}s`);
-
-      const stopTimeout = setTimeout(() => {
-        stopAudio();
-      }, (maxDuration + 1.5) * 1000);
-
-      (window as any).__autoStopTimeout = stopTimeout;
-
-      showToast(`Playing (${maxDuration.toFixed(1)}s)...`);
+      showToast(isResuming ? 'Resumed' : `Playing (${maxDuration.toFixed(1)}s)...`);
     } catch (error) {
       console.error(error);
       showToast("Playback error");
@@ -185,16 +184,70 @@ export default function Home() {
   };
 
   const stopAudio = () => {
-    if ((window as any).__autoStopTimeout) {
-      clearTimeout((window as any).__autoStopTimeout);
-    }
-
-    if ((window as any).__musicControls?.stop) {
-      (window as any).__musicControls.stop();
-      setIsPlaying(false);
-      showToast("Stopped");
+    AudioService.clearAutoStop();
+    const wasPlaying = AudioService.pauseTransport();
+    setIsPlaying(false);
+    if (wasPlaying) {
+      showToast("Paused");
     }
   };
+
+  const resetAudio = () => {
+    AudioService.clearAutoStop();
+    AudioService.stopTransport();
+    setCurrentTime(0);
+    setIsPlaying(false);
+    showToast("Stopped");
+  };
+
+  const handleSeek = (time: number) => {
+    if (isLoadingAudio) return;
+
+    AudioService.seek(time);
+    setCurrentTime(time);
+
+    // Recalculate auto-stop timeout if playing
+    const transportState = AudioService.getTransportState();
+    if (isPlaying && transportState?.state === 'started') {
+      const maxDuration = calculateMaxDuration();
+      const remainingTime = Math.max(0, maxDuration - time) + 1.5;
+      AudioService.setAutoStop(remainingTime, stopAudio);
+    }
+  };
+
+  // Poll transport time continuously
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const state = AudioService.getTransportState();
+      if (state) {
+        setCurrentTime(state.seconds);
+      }
+    }, isPlaying ? 50 : 100);
+
+    return () => clearInterval(interval);
+  }, [isPlaying]);
+
+  // Intercept console.log to detect when samples are loaded
+  useEffect(() => {
+    const originalLog = console.log;
+
+    console.log = function(...args: any[]) {
+      originalLog.apply(console, args);
+
+      const message = args.join(' ');
+
+      if (message.includes('[Music] Playing...')) {
+        if (AudioService.isPreloading()) {
+          AudioService.handlePreloadComplete();
+        }
+        setIsLoadingAudio(false);
+      }
+    };
+
+    return () => {
+      console.log = originalLog;
+    };
+  }, []);
 
   const handleMelodyGenerated = async (result: any) => {
     console.log("[DEBUG] handleMelodyGenerated called with:", result);
@@ -218,13 +271,9 @@ export default function Home() {
       showToast("Failed to process melody");
     }
 
-    // Close recorder after generation, UNLESS it's drums with visualization
-    // (drums visualization modal is rendered inside RecorderControls)
-    const isDrumsWithVisualization = recordingMode === 'drums' && result.visualization;
-    if (!isDrumsWithVisualization) {
-      setShowRecorder(false);
-      setRecordingMode(null);
-    }
+    // Close recorder after generation
+    setShowRecorder(false);
+    setRecordingMode(null);
   };
 
   const applyIRAndCompile = async (ir: any) => {
@@ -297,7 +346,7 @@ export default function Home() {
     };
   }, [isResizing]);
 
-  // Keyboard shortcuts for undo/redo and help
+  // Keyboard shortcuts for undo/redo, play/pause, and help
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Check if we're in an input/textarea (don't trigger shortcuts while typing)
@@ -308,6 +357,16 @@ export default function Home() {
 
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
+
+      // Play/Pause: Space
+      if (e.key === ' ' && !ctrlOrCmd) {
+        e.preventDefault();
+        if (isPlaying) {
+          stopAudio();
+        } else {
+          playAudio();
+        }
+      }
 
       // Show keyboard shortcuts: ?
       if (e.key === '?' && !ctrlOrCmd) {
@@ -332,7 +391,7 @@ export default function Home() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo]);
+  }, [undo, redo, isPlaying, isLoadingAudio, executableCode, playAudio, stopAudio]);
 
   return (
     <div className="h-screen flex flex-col bg-[#1a1a1a] overflow-hidden">
@@ -394,14 +453,7 @@ export default function Home() {
                 </svg>
               </button>
             </div>
-            <RecorderControls
-              onMelodyGenerated={handleMelodyGenerated}
-              mode={recordingMode || 'melody'}
-              onVisualizationClose={() => {
-                setShowRecorder(false);
-                setRecordingMode(null);
-              }}
-            />
+            <RecorderControls onMelodyGenerated={handleMelodyGenerated} />
           </div>
         </div>
       )}
@@ -446,17 +498,18 @@ export default function Home() {
         <div className="flex items-center gap-2 border-r border-gray-700 pr-4">
           {!isPlaying ? (
             <button
-              disabled={loadingPlay || !executableCode}
+              disabled={loadingPlay || !executableCode || isLoadingAudio}
               onClick={playAudio}
               className="flex items-center justify-center w-10 h-10 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg transition-colors"
-              title="Play (Space)"
+              title={isLoadingAudio ? "Loading audio..." : "Play (Space)"}
             >
               <Play className="w-5 h-5" />
             </button>
           ) : (
             <button
               onClick={stopAudio}
-              className="flex items-center justify-center w-10 h-10 bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors"
+              disabled={isLoadingAudio}
+              className="flex items-center justify-center w-10 h-10 bg-red-600 hover:bg-red-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg transition-colors"
               title="Stop (Space)"
             >
               <Square className="w-5 h-5" />
@@ -570,6 +623,8 @@ export default function Home() {
                 onCodeChange={setCode}
                 isPlaying={isPlaying}
                 currentTime={currentTime}
+                onSeek={handleSeek}
+                isLoading={isLoadingAudio}
               />
             ) : (
               <div className="h-full flex items-center justify-center text-gray-500">

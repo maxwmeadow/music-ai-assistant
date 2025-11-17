@@ -164,33 +164,51 @@ async def hum_to_melody_v2(
             }
         }
 
-        # Add visualization data if requested
+        # Add visualization data if requested (with timeout protection)
         if return_visualization:
             print("[HUM2MELODY_V2]   Extracting visualization data...")
             try:
-                viz_data = extract_segments_with_detection(
-                    audio_path,
-                    onset_high=onset_high,
-                    onset_low=onset_low,
-                    offset_high=offset_high,
-                    offset_low=offset_low,
-                    min_confidence=min_confidence
-                )
+                import asyncio
 
-                # Get waveform data
-                waveform_data = session_manager.get_waveform_data(session_id, max_samples=2000)
+                def extract_viz():
+                    """Helper to extract viz data in thread"""
+                    viz = extract_segments_with_detection(
+                        audio_path,
+                        onset_high=onset_high,
+                        onset_low=onset_low,
+                        offset_high=offset_high,
+                        offset_low=offset_low,
+                        min_confidence=min_confidence
+                    )
+                    wave = session_manager.get_waveform_data(session_id, max_samples=2000)
+                    return (viz, wave)
 
-                response_data["visualization"] = {
-                    "segments": viz_data['segments'],
-                    "onsets": viz_data['onsets'],
-                    "offsets": viz_data['offsets'],
-                    "waveform": waveform_data,
-                    "parameters": viz_data['parameters']
-                }
+                try:
+                    # Run with 5-second timeout to prevent blocking
+                    result = await asyncio.wait_for(
+                        asyncio.to_thread(extract_viz),
+                        timeout=5.0
+                    )
 
-                print(f"[HUM2MELODY_V2]   Added visualization data: {len(viz_data['segments'])} segments")
+                    viz_data, waveform_data = result
+
+                    response_data["visualization"] = {
+                        "segments": viz_data['segments'],
+                        "onsets": viz_data['onsets'],
+                        "offsets": viz_data['offsets'],
+                        "waveform": waveform_data,
+                        "parameters": viz_data['parameters']
+                    }
+
+                    print(f"[HUM2MELODY_V2]   Added visualization data: {len(viz_data['segments'])} segments")
+                except asyncio.TimeoutError:
+                    print(f"[HUM2MELODY_V2]   ⚠️  Visualization extraction timed out (>5s)")
+                    response_data["visualization"] = None
+
             except Exception as e:
                 print(f"[HUM2MELODY_V2]   ⚠️  Failed to extract visualization: {e}")
+                import traceback
+                traceback.print_exc()
                 response_data["visualization"] = None
 
         print("[HUM2MELODY_V2] ========================================")

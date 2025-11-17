@@ -1,6 +1,6 @@
 "use client";
 
-import {useState, useRef, useEffect, JSX} from "react";
+import { useState, useRef, useEffect, JSX } from "react";
 import { ParsedTrack } from "@/lib/dslParser";
 
 interface PianoRollNote {
@@ -178,29 +178,29 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
 
     const noteLines: string[] = [];
     Array.from(notesByTime.entries())
-        .sort(([a], [b]) => parseFloat(a) - parseFloat(b))
-        .forEach(([timeStr, notes]) => {
-          if (notes.length === 1) {
-            const note = notes[0];
-            const noteName = pitchToNote(note.pitch);
-            // Convert beats back to seconds for DSL
-            const startSeconds = beatsToSeconds(note.start);
-            const durationSeconds = beatsToSeconds(note.duration);
-            noteLines.push(
-                `  note("${noteName}", ${startSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${note.velocity.toFixed(1)})`
-            );
-          } else {
-            const noteNames = notes.map(n => `"${pitchToNote(n.pitch)}"`).join(', ');
-            const avgDuration = notes.reduce((sum, n) => sum + n.duration, 0) / notes.length;
-            const avgVelocity = notes.reduce((sum, n) => sum + n.velocity, 0) / notes.length;
-            // Convert beats back to seconds for DSL
-            const startSeconds = beatsToSeconds(notes[0].start);
-            const durationSeconds = beatsToSeconds(avgDuration);
-            noteLines.push(
-                `  chord([${noteNames}], ${startSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${avgVelocity.toFixed(1)})`
-            );
-          }
-        });
+      .sort(([a], [b]) => parseFloat(a) - parseFloat(b))
+      .forEach(([timeStr, notes]) => {
+        if (notes.length === 1) {
+          const note = notes[0];
+          const noteName = pitchToNote(note.pitch);
+          // Convert beats back to seconds for DSL
+          const startSeconds = beatsToSeconds(note.start);
+          const durationSeconds = beatsToSeconds(note.duration);
+          noteLines.push(
+            `  note("${noteName}", ${startSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${note.velocity.toFixed(1)})`
+          );
+        } else {
+          const noteNames = notes.map(n => `"${pitchToNote(n.pitch)}"`).join(', ');
+          const avgDuration = notes.reduce((sum, n) => sum + n.duration, 0) / notes.length;
+          const avgVelocity = notes.reduce((sum, n) => sum + n.velocity, 0) / notes.length;
+          // Convert beats back to seconds for DSL
+          const startSeconds = beatsToSeconds(notes[0].start);
+          const durationSeconds = beatsToSeconds(avgDuration);
+          noteLines.push(
+            `  chord([${noteNames}], ${startSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${avgVelocity.toFixed(1)})`
+          );
+        }
+      });
 
     const newTrackContent = `${opening}\n${instrumentLine}${noteLines.join('\n')}\n${closing}`;
     const newDSL = dslCode.replace(fullMatch, newTrackContent);
@@ -231,7 +231,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
 
       // Fetch instrument mapping
       const mappingUrl = `${CDN_BASE}/samples/${track.instrument}/mapping.json`;
-      const response = await fetch(mappingUrl, {cache: 'force-cache'});
+      const response = await fetch(mappingUrl, { cache: 'force-cache' });
 
       if (!response.ok) {
         console.warn('Could not load instrument mapping for preview');
@@ -239,7 +239,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
       }
 
       const mapping = await response.json();
-      const {urls, baseUrl} = buildSamplerUrls(mapping, track.instrument, CDN_BASE);
+      const { urls, baseUrl } = buildSamplerUrls(mapping, track.instrument, CDN_BASE);
 
       // Track which MIDI notes have samples
       const available = new Set<number>();
@@ -355,7 +355,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
 
         // Get the lokey/hikey range from the first layer to understand coverage
         const sampleLayer = layerArray.find((l: any) =>
-            l.file.includes('Sustains') || l.file.includes('sus')
+          l.file.includes('Sustains') || l.file.includes('sus')
         ) || layerArray[0];
 
         if (!sampleLayer) continue;
@@ -374,7 +374,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
       }
     }
 
-    return {urls, baseUrl};
+    return { urls, baseUrl };
   };
 
   const playPreviewNote = async (pitch: number) => {
@@ -403,12 +403,12 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
   const yToPitch = (y: number) => Math.round(MIDI_MAX - y / NOTE_HEIGHT);
 
   const SNAP_OPTIONS = [
-    {label: '1/4 (Whole)', value: 4},
-    {label: '1/2 (Half)', value: 2},
-    {label: '1 (Quarter)', value: 1},
-    {label: '1/2 (8th)', value: 0.5},
-    {label: '1/4 (16th)', value: 0.25},
-    {label: '1/8 (32nd)', value: 0.125},
+    { label: '1/4 (Whole)', value: 4 },
+    { label: '1/2 (Half)', value: 2 },
+    { label: '1 (Quarter)', value: 1 },
+    { label: '1/2 (8th)', value: 0.5 },
+    { label: '1/4 (16th)', value: 0.25 },
+    { label: '1/8 (32nd)', value: 0.125 },
   ];
 
   const handleCanvasClick = (e: React.MouseEvent) => {
@@ -427,7 +427,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
       const noteY = pitchToY(note.pitch);
       const noteWidth = timeToX(note.duration);
       return x >= noteX && x <= noteX + noteWidth &&
-             y >= noteY && y <= noteY + NOTE_HEIGHT;
+        y >= noteY && y <= noteY + NOTE_HEIGHT;
     });
 
     if (clickedNoteIndex !== -1) {
@@ -493,7 +493,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
         const noteBottom = noteY + noteHeight;
 
         if (noteX < maxX && noteRight > minX &&
-            noteY < maxY && noteBottom > minY) {
+          noteY < maxY && noteBottom > minY) {
           notesInBox.add(idx);
         }
       });
@@ -616,8 +616,8 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
 
       notes[draggingNote.noteIndex].start = snappedStart;
       notes[draggingNote.noteIndex].pitch = Math.max(
-          MIDI_MIN,
-          Math.min(MIDI_MAX, draggingNote.initialPitch + deltaPitch)
+        MIDI_MIN,
+        Math.min(MIDI_MAX, draggingNote.initialPitch + deltaPitch)
       );
 
       updateDSLWithNewNotes(notes);
@@ -873,326 +873,320 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
   const maxDuration = Math.max(10, ...notes.map(n => n.start + n.duration));
 
   return (
-      <div className="bg-gray-950 border border-white/10 rounded-xl overflow-hidden flex flex-col">
-        <div className="bg-gray-900 border-b border-white/10 p-4 flex items-center justify-between">
-          <div>
-            <h3 className="text-white font-semibold">Piano Roll - {track.id}</h3>
-            <p className="text-xs text-gray-400">
-              Click piano keys to preview • Click and drag grid to create notes • Drag notes to move • Delete key to
-              remove
-            </p>
-          </div>
-          <div className="flex items-center gap-4">
-            {!samplerLoaded && track.instrument && (
-                <span className="text-xs text-yellow-400">Loading samples...</span>
-            )}
-
-            {/* Snap controls */}
-            <div className="flex items-center gap-2">
-              <button
-                  onClick={() => setSnapEnabled(!snapEnabled)}
-                  className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors ${
-                      snapEnabled
-                          ? 'bg-purple-600 text-white'
-                          : 'bg-white/10 text-gray-400'
-                  }`}
-              >
-                SNAP
-              </button>
-
-              <select
-                  value={snapValue}
-                  onChange={(e) => setSnapValue(Number(e.target.value))}
-                  disabled={!snapEnabled}
-                  className="bg-white/10 text-white text-xs rounded-lg px-2 py-1 border border-white/20 disabled:opacity-50"
-              >
-                {SNAP_OPTIONS.map(opt => (
-                    <option key={opt.value} value={opt.value} className="bg-gray-900">
-                      {opt.label}
-                    </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Quantize controls */}
-            <div className="flex items-center gap-2">
-              <button
-                  onClick={() => handleQuantize(snapValue)}
-                  disabled={notes.length === 0}
-                  className="px-3 py-1 text-xs font-semibold rounded-lg transition-colors bg-blue-600 hover:bg-blue-500 disabled:bg-white/10 disabled:text-gray-500 text-white"
-                  title={selectedNotes.size > 0 ? `Quantize ${selectedNotes.size} selected notes` : 'Quantize all notes'}
-              >
-                QUANTIZE
-              </button>
-            </div>
-
-            <label className="text-sm text-gray-400">Zoom:</label>
-            <input
-                type="range"
-                min="20"
-                max="200"
-                value={zoom}
-                onChange={(e) => setZoom(Number(e.target.value))}
-                className="w-32"
-            />
-          </div>
+    <div className="bg-gray-950 border border-white/10 rounded-xl overflow-hidden flex flex-col">
+      <div className="bg-gray-900 border-b border-white/10 p-4 flex items-center justify-between">
+        <div>
+          <h3 className="text-white font-semibold">Piano Roll - {track.id}</h3>
+          <p className="text-xs text-gray-400">
+            Click piano keys to preview • Click and drag grid to create notes • Drag notes to move • Delete key to
+            remove
+          </p>
         </div>
+        <div className="flex items-center gap-4">
+          {!samplerLoaded && track.instrument && (
+            <span className="text-xs text-yellow-400">Loading samples...</span>
+          )}
 
-        <div
-            ref={canvasRef}
-            className="relative overflow-auto"
-            style={{height: '400px'}}
-            onMouseDown={handleCanvasClick}
-            onMouseMove={handleCanvasMouseMove}
-            onMouseUp={handleCanvasMouseUp}
-        >
-          <div className="flex">
-            {/* Piano keys */}
-            <div className="sticky left-0 z-10 bg-gray-900" style={{width: `${PIANO_WIDTH}px`}}>
-              {Array.from({length: MIDI_MAX - MIDI_MIN + 1}).map((_, i) => {
-                const pitch = MIDI_MAX - i;
-                const isBlack = isBlackKey(pitch);
-                const isC = pitch % 12 === 0;
-                const hasSample = availableNotes.has(pitch);
+          {/* Snap controls */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSnapEnabled(!snapEnabled)}
+              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors ${snapEnabled
+                  ? 'bg-purple-600 text-white'
+                  : 'bg-white/10 text-gray-400'
+                }`}
+            >
+              SNAP
+            </button>
 
-                return (
-                    <div
-                        key={pitch}
-                        className={`border-b border-gray-700 ${
-                            !hasSample
-                                ? 'bg-gray-950 cursor-not-allowed'
-                                : isBlack
-                                    ? 'bg-gray-800 hover:bg-gray-700 cursor-pointer'
-                                    : 'bg-gray-100 hover:bg-gray-200 cursor-pointer'
-                        } transition-colors`}
-                        style={{height: `${NOTE_HEIGHT}px`}}
-                        onClick={() => hasSample && handlePianoKeyClick(pitch)}
-                    >
-                  <span className={`text-xs px-2 ${
-                      !hasSample
-                          ? 'text-gray-700'
-                          : isBlack
-                              ? 'text-gray-400'
-                              : 'text-gray-600'
-                  }`}>
+            <select
+              value={snapValue}
+              onChange={(e) => setSnapValue(Number(e.target.value))}
+              disabled={!snapEnabled}
+              className="bg-white/10 text-white text-xs rounded-lg px-2 py-1 border border-white/20 disabled:opacity-50"
+            >
+              {SNAP_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value} className="bg-gray-900">
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Quantize controls */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handleQuantize(snapValue)}
+              disabled={notes.length === 0}
+              className="px-3 py-1 text-xs font-semibold rounded-lg transition-colors bg-blue-600 hover:bg-blue-500 disabled:bg-white/10 disabled:text-gray-500 text-white"
+              title={selectedNotes.size > 0 ? `Quantize ${selectedNotes.size} selected notes` : 'Quantize all notes'}
+            >
+              QUANTIZE
+            </button>
+          </div>
+
+          <label className="text-sm text-gray-400">Zoom:</label>
+          <input
+            type="range"
+            min="20"
+            max="200"
+            value={zoom}
+            onChange={(e) => setZoom(Number(e.target.value))}
+            className="w-32"
+          />
+        </div>
+      </div>
+
+      <div
+        ref={canvasRef}
+        className="relative overflow-auto"
+        style={{ height: '400px' }}
+        onMouseDown={handleCanvasClick}
+        onMouseMove={handleCanvasMouseMove}
+        onMouseUp={handleCanvasMouseUp}
+      >
+        <div className="flex">
+          {/* Piano keys */}
+          <div className="sticky left-0 z-10 bg-gray-900" style={{ width: `${PIANO_WIDTH}px` }}>
+            {Array.from({ length: MIDI_MAX - MIDI_MIN + 1 }).map((_, i) => {
+              const pitch = MIDI_MAX - i;
+              const isBlack = isBlackKey(pitch);
+              const isC = pitch % 12 === 0;
+              const hasSample = availableNotes.has(pitch);
+
+              return (
+                <div
+                  key={pitch}
+                  className={`border-b border-gray-700 ${!hasSample
+                      ? 'bg-gray-950 cursor-not-allowed'
+                      : isBlack
+                        ? 'bg-gray-800 hover:bg-gray-700 cursor-pointer'
+                        : 'bg-gray-100 hover:bg-gray-200 cursor-pointer'
+                    } transition-colors`}
+                  style={{ height: `${NOTE_HEIGHT}px` }}
+                  onClick={() => hasSample && handlePianoKeyClick(pitch)}
+                >
+                  <span className={`text-xs px-2 ${!hasSample
+                      ? 'text-gray-700'
+                      : isBlack
+                        ? 'text-gray-400'
+                        : 'text-gray-600'
+                    }`}>
                     {isC && pitchToNote(pitch)}
                     {!hasSample && ' ×'}
                   </span>
-                    </div>
-                );
-              })}
-            </div>
+                </div>
+              );
+            })}
+          </div>
 
-            {/* Grid and notes */}
-            <div className="relative flex-1" style={{width: `${maxDuration * zoom}px`}}>
-              {/* Grid lines */}
-              {Array.from({length: MIDI_MAX - MIDI_MIN + 1}).map((_, i) => {
-                const pitch = MIDI_MAX - i;
-                const isBlack = isBlackKey(pitch);
-                const hasSample = availableNotes.has(pitch);
+          {/* Grid and notes */}
+          <div className="relative flex-1" style={{ width: `${maxDuration * zoom}px` }}>
+            {/* Grid lines */}
+            {Array.from({ length: MIDI_MAX - MIDI_MIN + 1 }).map((_, i) => {
+              const pitch = MIDI_MAX - i;
+              const isBlack = isBlackKey(pitch);
+              const hasSample = availableNotes.has(pitch);
 
-                return (
-                    <div
-                        key={pitch}
-                        className={`absolute w-full border-b ${
-                            !hasSample
-                                ? 'bg-gray-950/50 border-gray-800/30'
-                                : isBlack
-                                    ? 'bg-gray-900 border-gray-800'
-                                    : 'bg-gray-950 border-gray-700'
-                        }`}
-                        style={{
-                          top: `${i * NOTE_HEIGHT}px`,
-                          height: `${NOTE_HEIGHT}px`,
-                        }}
-                    />
-                );
-              })}
+              return (
+                <div
+                  key={pitch}
+                  className={`absolute w-full border-b ${!hasSample
+                      ? 'bg-gray-950/50 border-gray-800/30'
+                      : isBlack
+                        ? 'bg-gray-900 border-gray-800'
+                        : 'bg-gray-950 border-gray-700'
+                    }`}
+                  style={{
+                    top: `${i * NOTE_HEIGHT}px`,
+                    height: `${NOTE_HEIGHT}px`,
+                  }}
+                />
+              );
+            })}
 
-              {/* Time markers with adaptive subdivisions */}
-              {(() => {
-                const { subdivision, showSubdivisions, showSixteenths } = getGridSubdivision(zoom);
-                const totalBeats = Math.ceil(maxDuration);
-                const markers: JSX.Element[] = [];
+            {/* Time markers with adaptive subdivisions */}
+            {(() => {
+              const { subdivision, showSubdivisions, showSixteenths } = getGridSubdivision(zoom);
+              const totalBeats = Math.ceil(maxDuration);
+              const markers: JSX.Element[] = [];
 
-                // Generate all markers based on subdivision
-                for (let beat = 0; beat <= totalBeats; beat += subdivision) {
-                  const bar = Math.floor(beat / 4) + 1;
-                  const beatInBar = (beat % 4);
-                  const isMeasureStart = beat % 4 === 0;
-                  const isBeatStart = beat % 1 === 0;
-                  const isEighthNote = beat % 0.5 === 0 && beat % 1 !== 0;
-                  const isSixteenthNote = beat % 0.25 === 0 && beat % 0.5 !== 0;
+              // Generate all markers based on subdivision
+              for (let beat = 0; beat <= totalBeats; beat += subdivision) {
+                const bar = Math.floor(beat / 4) + 1;
+                const beatInBar = (beat % 4);
+                const isMeasureStart = beat % 4 === 0;
+                const isBeatStart = beat % 1 === 0;
+                const isEighthNote = beat % 0.5 === 0 && beat % 1 !== 0;
+                const isSixteenthNote = beat % 0.25 === 0 && beat % 0.5 !== 0;
 
-                  // Determine line style
-                  let borderClass = '';
-                  let labelContent = null;
+                // Determine line style
+                let borderClass = '';
+                let labelContent = null;
 
-                  if (isMeasureStart) {
-                    borderClass = 'border-l-2 border-gray-500';
-                    labelContent = (
-                      <span className="text-xs font-bold text-gray-200 absolute -top-5 -translate-x-1/2">
-                        {bar}
-                      </span>
-                    );
-                  } else if (isBeatStart) {
-                    borderClass = 'border-l border-gray-600';
-                    labelContent = (
-                      <span className="text-xs text-gray-400 absolute -top-5 -translate-x-1/2">
-                        {Math.floor(beatInBar) + 1}
-                      </span>
-                    );
-                  } else if (isEighthNote && showSubdivisions) {
-                    borderClass = 'border-l border-gray-700/50';
-                    if (showSixteenths) {
-                      labelContent = (
-                        <span className="text-[10px] text-gray-500 absolute -top-5 -translate-x-1/2">
-                          +
-                        </span>
-                      );
-                    }
-                  } else if (isSixteenthNote && showSixteenths) {
-                    borderClass = 'border-l border-gray-800/30';
-                  }
-
-                  markers.push(
-                    <div
-                      key={beat}
-                      className={`absolute top-0 bottom-0 ${borderClass}`}
-                      style={{ left: `${beat * zoom}px` }}
-                    >
-                      {labelContent}
-                    </div>
+                if (isMeasureStart) {
+                  borderClass = 'border-l-2 border-gray-500';
+                  labelContent = (
+                    <span className="text-xs font-bold text-gray-200 absolute -top-5 -translate-x-1/2">
+                      {bar}
+                    </span>
                   );
+                } else if (isBeatStart) {
+                  borderClass = 'border-l border-gray-600';
+                  labelContent = (
+                    <span className="text-xs text-gray-400 absolute -top-5 -translate-x-1/2">
+                      {Math.floor(beatInBar) + 1}
+                    </span>
+                  );
+                } else if (isEighthNote && showSubdivisions) {
+                  borderClass = 'border-l border-gray-700/50';
+                  if (showSixteenths) {
+                    labelContent = (
+                      <span className="text-[10px] text-gray-500 absolute -top-5 -translate-x-1/2">
+                        +
+                      </span>
+                    );
+                  }
+                } else if (isSixteenthNote && showSixteenths) {
+                  borderClass = 'border-l border-gray-800/30';
                 }
 
-                return markers;
-              })()}
-
-              {/* Notes */}
-              {notes.map((note, idx) => {
-                const hasSample = availableNotes.has(note.pitch);
-                const isSelected = selectedNotes.has(idx);
-
-                return (
-                    <div
-                        key={idx}
-                        className={`absolute rounded cursor-move ${
-                            !hasSample
-                                ? 'bg-red-500/50 border-2 border-red-600'
-                                : note.isChord
-                                    ? 'bg-blue-500'
-                                    : 'bg-purple-500'
-                        } ${isSelected ? 'ring-2 ring-white' : ''} hover:brightness-110`}
-                        style={{
-                          left: `${timeToX(note.start)}px`,
-                          top: `${pitchToY(note.pitch) + 1}px`,
-                          width: `${timeToX(note.duration)}px`,
-                          height: `${NOTE_HEIGHT - 2}px`,
-                          opacity: hasSample ? note.velocity : 0.5,
-                        }}
-                        onMouseDown={(e) => hasSample && handleNoteMouseDown(e, idx, false)}
-                    >
-                      <div className="text-xs text-white px-1 truncate pointer-events-none">
-                        {pitchToNote(note.pitch)} {!hasSample && '⚠'}
-                      </div>
-
-                      {hasSample && (
-                          <div
-                              className="absolute right-0 top-0 bottom-0 w-1 bg-white/50 hover:bg-white cursor-ew-resize"
-                              onMouseDown={(e) => handleNoteMouseDown(e, idx, true)}
-                          />
-                      )}
-                    </div>
+                markers.push(
+                  <div
+                    key={beat}
+                    className={`absolute top-0 bottom-0 ${borderClass}`}
+                    style={{ left: `${beat * zoom}px` }}
+                  >
+                    {labelContent}
+                  </div>
                 );
-              })}
+              }
 
-              {/* Box selection visual */}
-              {isBoxSelecting && boxStart && boxEnd && (
-                  <div
-                      className="absolute border-2 border-blue-400 bg-blue-400/20 pointer-events-none"
-                      style={{
-                        left: `${Math.min(boxStart.x, boxEnd.x)}px`,
-                        top: `${Math.min(boxStart.y, boxEnd.y)}px`,
-                        width: `${Math.abs(boxEnd.x - boxStart.x)}px`,
-                        height: `${Math.abs(boxEnd.y - boxStart.y)}px`,
-                      }}
-                  />
-              )}
+              return markers;
+            })()}
 
-              {/* Playback cursor */}
-              {isPlaying && (
-                  <div
-                      className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-20 pointer-events-none"
-                      style={{left: `${timeToX(secondsToBeats(currentTime))}px`}}
-                  />
-              )}
-            </div>
+            {/* Notes */}
+            {notes.map((note, idx) => {
+              const hasSample = availableNotes.has(note.pitch);
+              const isSelected = selectedNotes.has(idx);
+
+              return (
+                <div
+                  key={idx}
+                  className={`absolute rounded cursor-move ${!hasSample
+                      ? 'bg-red-500/50 border-2 border-red-600'
+                      : note.isChord
+                        ? 'bg-blue-500'
+                        : 'bg-purple-500'
+                    } ${isSelected ? 'ring-2 ring-white' : ''} hover:brightness-110`}
+                  style={{
+                    left: `${timeToX(note.start)}px`,
+                    top: `${pitchToY(note.pitch) + 1}px`,
+                    width: `${timeToX(note.duration)}px`,
+                    height: `${NOTE_HEIGHT - 2}px`,
+                    opacity: hasSample ? note.velocity : 0.5,
+                  }}
+                  onMouseDown={(e) => hasSample && handleNoteMouseDown(e, idx, false)}
+                >
+                  <div className="text-xs text-white px-1 truncate pointer-events-none">
+                    {pitchToNote(note.pitch)} {!hasSample && '⚠'}
+                  </div>
+
+                  {hasSample && (
+                    <div
+                      className="absolute right-0 top-0 bottom-0 w-1 bg-white/50 hover:bg-white cursor-ew-resize"
+                      onMouseDown={(e) => handleNoteMouseDown(e, idx, true)}
+                    />
+                  )}
+                </div>
+              );
+            })}
+
+            {/* Box selection visual */}
+            {isBoxSelecting && boxStart && boxEnd && (
+              <div
+                className="absolute border-2 border-blue-400 bg-blue-400/20 pointer-events-none"
+                style={{
+                  left: `${Math.min(boxStart.x, boxEnd.x)}px`,
+                  top: `${Math.min(boxStart.y, boxEnd.y)}px`,
+                  width: `${Math.abs(boxEnd.x - boxStart.x)}px`,
+                  height: `${Math.abs(boxEnd.y - boxStart.y)}px`,
+                }}
+              />
+            )}
+
+            {/* Playback cursor */}
+            {isPlaying && (
+              <div
+                className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-20 pointer-events-none"
+                style={{ left: `${timeToX(secondsToBeats(currentTime))}px` }}
+              />
+            )}
           </div>
         </div>
+      </div>
 
-        {/* Velocity Editor */}
-        <div className="border-t border-white/10">
-          <div className="bg-gray-900 px-4 py-2 border-b border-white/10">
-            <h4 className="text-sm font-semibold text-white">Velocity Editor</h4>
-            <p className="text-xs text-gray-400">Click and drag bars to adjust velocity</p>
-          </div>
-          <div
-              ref={velocityCanvasRef}
-              className="relative overflow-auto bg-gray-950"
-              style={{ height: '120px' }}
-          >
-            <div className="flex">
-              {/* Spacer for piano keys alignment */}
-              <div className="sticky left-0 z-10 bg-gray-900" style={{ width: `${PIANO_WIDTH}px` }}>
-                <div className="h-full flex items-center justify-center text-xs text-gray-500">
-                  Velocity
-                </div>
+      {/* Velocity Editor */}
+      <div className="border-t border-white/10">
+        <div className="bg-gray-900 px-4 py-2 border-b border-white/10">
+          <h4 className="text-sm font-semibold text-white">Velocity Editor</h4>
+          <p className="text-xs text-gray-400">Click and drag bars to adjust velocity</p>
+        </div>
+        <div
+          ref={velocityCanvasRef}
+          className="relative overflow-auto bg-gray-950"
+          style={{ height: '120px' }}
+        >
+          <div className="flex">
+            {/* Spacer for piano keys alignment */}
+            <div className="sticky left-0 z-10 bg-gray-900" style={{ width: `${PIANO_WIDTH}px` }}>
+              <div className="h-full flex items-center justify-center text-xs text-gray-500">
+                Velocity
               </div>
+            </div>
 
-              {/* Velocity bars */}
-              <div className="relative flex-1" style={{ width: `${maxDuration * zoom}px`, height: '100px' }}>
-                {/* Background grid lines (same as piano roll time markers) */}
-                {Array.from({ length: Math.ceil(maxDuration / 4) + 1 }).map((_, i) => (
-                    <div
-                        key={i}
-                        className="absolute top-0 bottom-0 border-l-2 border-gray-600"
-                        style={{ left: `${i * 4 * zoom}px` }}
-                    />
-                ))}
+            {/* Velocity bars */}
+            <div className="relative flex-1" style={{ width: `${maxDuration * zoom}px`, height: '100px' }}>
+              {/* Background grid lines (same as piano roll time markers) */}
+              {Array.from({ length: Math.ceil(maxDuration / 4) + 1 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="absolute top-0 bottom-0 border-l-2 border-gray-600"
+                  style={{ left: `${i * 4 * zoom}px` }}
+                />
+              ))}
 
-                {/* Velocity bars for each note */}
-                {notes.map((note, idx) => {
-                  const isSelected = selectedNotes.has(idx);
-                  const barHeight = note.velocity * 100; // 0-1 → 0-100px
+              {/* Velocity bars for each note */}
+              {notes.map((note, idx) => {
+                const isSelected = selectedNotes.has(idx);
+                const barHeight = note.velocity * 100; // 0-1 → 0-100px
 
-                  return (
-                      <div
-                          key={idx}
-                          className={`absolute cursor-ns-resize ${
-                              isSelected ? 'bg-purple-400' : 'bg-purple-600/70'
-                          } hover:bg-purple-400 transition-colors`}
-                          style={{
-                            left: `${timeToX(note.start)}px`,
-                            bottom: '0px',
-                            width: `${timeToX(note.duration)}px`,
-                            height: `${barHeight}px`,
-                          }}
-                          onMouseDown={(e) => handleVelocityMouseDown(e, idx)}
-                          title={`Velocity: ${note.velocity.toFixed(2)}`}
-                      >
-                        {isSelected && (
-                            <div className="absolute top-0 left-0 right-0 text-center text-xs text-white font-bold">
-                              {note.velocity.toFixed(2)}
-                            </div>
-                        )}
+                return (
+                  <div
+                    key={idx}
+                    className={`absolute cursor-ns-resize ${isSelected ? 'bg-purple-400' : 'bg-purple-600/70'
+                      } hover:bg-purple-400 transition-colors`}
+                    style={{
+                      left: `${timeToX(note.start)}px`,
+                      bottom: '0px',
+                      width: `${timeToX(note.duration)}px`,
+                      height: `${barHeight}px`,
+                    }}
+                    onMouseDown={(e) => handleVelocityMouseDown(e, idx)}
+                    title={`Velocity: ${note.velocity.toFixed(2)}`}
+                  >
+                    {isSelected && (
+                      <div className="absolute top-0 left-0 right-0 text-center text-xs text-white font-bold">
+                        {note.velocity.toFixed(2)}
                       </div>
-                  );
-                })}
-              </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
       </div>
+    </div>
   );
 }

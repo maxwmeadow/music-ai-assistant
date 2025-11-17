@@ -15,8 +15,18 @@ const MusicJSONParser = require('./parser');
 const app = express();
 const PORT = process.env.PORT || 5001;
 
+// CORS configuration
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',')
+  : ['http://localhost:3000', 'http://localhost:8000'];
+
+console.log('Runner CORS allowed origins:', allowedOrigins);
+
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true
+}));
 app.use(express.json({ limit: '50mb' }));
 
 // Static file serving for samples
@@ -506,17 +516,27 @@ function generateExecutableCode(CDN_BASE, tempo, trackConfigs, trackSchedules, m
     // Load all instruments
     console.log('[Music] Loading instruments...');
     const loadPromises =[];
-    
+
     for (const config of trackConfigs) {
-        if (!instrumentPools.has(config.trackId)) {
+        // Use composite key: trackId + instrumentName to detect instrument changes
+        const cacheKey = config.trackId + '::' + config.instrumentName;
+        const existingPool = instrumentPools.get(config.trackId);
+        const existingCacheKey = existingPool?.__cacheKey;
+
+        // Only reuse if the same instrument is cached for this track
+        if (existingPool && existingCacheKey === cacheKey) {
+            console.log('[Music] Reusing cached pool:', config.instrumentName);
+        } else {
+            if (existingPool) {
+                console.log('[Music] Instrument changed for track', config.trackId, '- reloading');
+            }
             const loadPromise = createInstrumentPool(config.instrumentName, 8)
                 .then(pool => {
+                    pool.__cacheKey = cacheKey;
                     instrumentPools.set(config.trackId, pool);
                     console.log('[Music] Loaded:', config.instrumentName);
                 });
             loadPromises.push(loadPromise);
-        } else {
-            console.log('[Music] Reusing cached pool:', config.instrumentName);
         }
     }
     
