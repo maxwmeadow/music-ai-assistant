@@ -15,6 +15,8 @@ import { useHistory } from "@/hooks/useHistory";
 import { KeyboardShortcuts } from "@/components/KeyboardShortcuts";
 import { AudioService } from "@/services/audioService";
 import { DSLService } from "@/services/dslService";
+import { FileMenu } from "@/components/FileMenu";
+import { ProjectFile } from "@/lib/export";
 
 export default function Home() {
   const { pushHistory, undo, redo, canUndo, canRedo, currentState: code } = useHistory("// Your generated music code will appear here...");
@@ -319,6 +321,45 @@ export default function Home() {
     setShowRecorder(true);
   };
 
+  // File operations handlers
+  const handleProjectImport = async (project: ProjectFile) => {
+    try {
+      setCode(project.dsl);
+
+      // Parse tracks
+      const parsedTracks = parseTracksFromDSL(project.dsl);
+      setTracks(parsedTracks);
+
+      // Restore IR if available
+      if (project.ir) {
+        setCurrentIR(project.ir);
+      }
+
+      // Restore track volumes if available
+      if (project.settings?.trackVolumes) {
+        setTrackVolumes(project.settings.trackVolumes);
+      }
+
+      // Compile the imported DSL
+      await sendToRunner();
+
+      showToast(`Project "${project.metadata.title || 'Untitled'}" loaded`);
+    } catch (error) {
+      console.error('Failed to import project:', error);
+      showToast('Failed to import project');
+    }
+  };
+
+  const handleMIDIImport = async (ir: any) => {
+    try {
+      setCurrentIR(ir);
+      await applyIRAndCompile(ir);
+    } catch (error) {
+      console.error('Failed to import MIDI:', error);
+      showToast('Failed to import MIDI');
+    }
+  };
+
   // Handle resize drag
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -350,7 +391,7 @@ export default function Home() {
     };
   }, [isResizing]);
 
-  // Keyboard shortcuts for undo/redo, play/pause, and help
+  // Keyboard shortcuts for undo/redo, play/pause, file operations, and help
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Check if we're in an input/textarea (don't trigger shortcuts while typing)
@@ -361,6 +402,36 @@ export default function Home() {
 
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
+
+      // File operations
+      // Save Project: Ctrl+S
+      if (ctrlOrCmd && e.key === 's' && !e.shiftKey) {
+        e.preventDefault();
+        // Trigger file menu export
+        const exportButton = document.querySelector('[title*="Export project"]') as HTMLButtonElement;
+        if (exportButton) exportButton.click();
+      }
+
+      // Open Project: Ctrl+O
+      if (ctrlOrCmd && e.key === 'o') {
+        e.preventDefault();
+        const openButton = document.querySelector('[title*="Open project"]') as HTMLButtonElement;
+        if (openButton) openButton.click();
+      }
+
+      // Export MIDI: Ctrl+E (without Shift)
+      if (ctrlOrCmd && e.key === 'e' && !e.shiftKey) {
+        e.preventDefault();
+        const midiButton = document.querySelector('[title*="Export as MIDI"]') as HTMLButtonElement;
+        if (midiButton) midiButton.click();
+      }
+
+      // Export Audio: Ctrl+Shift+E
+      if (ctrlOrCmd && e.shiftKey && e.key === 'E') {
+        e.preventDefault();
+        const audioButton = document.querySelector('[title*="Export as WAV"]') as HTMLButtonElement;
+        if (audioButton) audioButton.click();
+      }
 
       // Play/Pause: Space
       if (e.key === ' ' && !ctrlOrCmd) {
@@ -459,11 +530,6 @@ export default function Home() {
             </div>
             <RecorderControls
               onMelodyGenerated={handleMelodyGenerated}
-              mode={recordingMode || 'melody'}
-              onVisualizationClose={() => {
-                setShowRecorder(false);
-                setRecordingMode(null);
-              }}
             />
           </div>
         </div>
@@ -477,6 +543,26 @@ export default function Home() {
             <Music className="w-5 h-5 text-white" />
           </div>
           <span className="text-white font-bold text-lg">Studio</span>
+        </div>
+
+        {/* File Menu */}
+        <div className="border-r border-gray-700 pr-4">
+          <FileMenu
+            dslCode={code}
+            tracks={tracks}
+            currentIR={currentIR}
+            executableCode={executableCode}
+            metadata={{
+              title: "Untitled Project",
+              tempo: 120,
+            }}
+            settings={{
+              trackVolumes: trackVolumes,
+            }}
+            onProjectImport={handleProjectImport}
+            onMIDIImport={handleMIDIImport}
+            onToast={showToast}
+          />
         </div>
 
         {/* Model Buttons */}

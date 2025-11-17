@@ -187,8 +187,8 @@ export function downloadMIDI(ir: any, filename?: string): void {
   try {
     const midiData = exportToMIDI(ir);
 
-    // Create blob
-    const blob = new Blob([midiData], { type: 'audio/midi' });
+    // Create blob (convert to regular Uint8Array for compatibility)
+    const blob = new Blob([new Uint8Array(midiData)], { type: 'audio/midi' });
 
     // Generate filename
     const title = ir.metadata?.title || 'project';
