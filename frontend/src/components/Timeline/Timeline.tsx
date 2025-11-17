@@ -30,6 +30,7 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
   const timelineRef = useRef<HTMLDivElement>(null);
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [snapValue, setSnapValue] = useState(0.25);
+  const [copiedNote, setCopiedNote] = useState<{ note: TimelineNote, trackId: string } | null>(null);
 
   const getTempoFromDSL = (): number => {
     const tempoMatch = dslCode.match(/tempo\((\d+)\)/);
@@ -230,6 +231,50 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
     setSelectedNote(null);
   };
 
+  const handleCopyNote = () => {
+    if (!selectedNote) return;
+
+    const notes = parseNotesFromDSL(selectedNote.trackId);
+    const noteToCopy = notes[selectedNote.noteIndex];
+
+    if (noteToCopy) {
+      // Create a deep copy of the note
+      setCopiedNote({
+        note: { ...noteToCopy },
+        trackId: selectedNote.trackId
+      });
+    }
+  };
+
+  const handlePasteNote = () => {
+    if (!copiedNote) return;
+
+    const { note, trackId } = copiedNote;
+    const notes = parseNotesFromDSL(trackId);
+
+    // Calculate the paste position at the playhead (red line)
+    const pastePosition = secondsToBeats(currentTime);
+    const snappedPosition = snapToGrid(pastePosition);
+
+    // Create a new note at the playhead position
+    const newNote: TimelineNote = {
+      ...note,
+      start: snappedPosition
+    };
+
+    // Add the new note and sort by start time
+    notes.push(newNote);
+    notes.sort((a, b) => a.start - b.start);
+
+    updateDSLWithNewNotes(trackId, notes);
+
+    // Select the newly pasted note
+    const newNoteIndex = notes.findIndex(n => n.start === snappedPosition && n.pitch === newNote.pitch);
+    if (newNoteIndex !== -1) {
+      setSelectedNote({ trackId, noteIndex: newNoteIndex });
+    }
+  };
+
   const handleTimelineClick = (e: React.MouseEvent) => {
     // Don't allow interactions while loading
     if (isLoading) return;
@@ -286,13 +331,36 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Check if user is typing in an input field
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        return;
+      }
+
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
+
+      // Delete/Backspace: Delete selected note
       if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
         handleDeleteNote();
+      }
+
+      // Ctrl+C / Cmd+C: Copy selected note
+      if (ctrlOrCmd && e.key === 'c') {
+        e.preventDefault();
+        handleCopyNote();
+      }
+
+      // Ctrl+V / Cmd+V: Paste note at playhead
+      if (ctrlOrCmd && e.key === 'v') {
+        e.preventDefault();
+        handlePasteNote();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedNote]);
+  }, [selectedNote, copiedNote, currentTime]);
 
   const maxDuration = tracks.reduce((max, track) => {
     const notes = parseNotesFromDSL(track.id);
