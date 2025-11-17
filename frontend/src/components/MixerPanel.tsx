@@ -16,13 +16,16 @@ export function MixerPanel({ tracks, onVolumeChange }: MixerPanelProps) {
   const [levels, setLevels] = useState<Record<string, number>>({});
   const [meters, setMeters] = useState<Record<string, any>>({});
 
-  // Initialize volumes
+  // Initialize volumes (preserve existing values)
   useEffect(() => {
-    const initialVolumes: Record<string, number> = {};
-    tracks.forEach(track => {
-      initialVolumes[track.id] = 0; // 0 dB
+    setVolumes(prev => {
+      const newVolumes: Record<string, number> = {};
+      tracks.forEach(track => {
+        // Preserve existing volume or default to 0dB
+        newVolumes[track.id] = prev[track.id] ?? 0;
+      });
+      return newVolumes;
     });
-    setVolumes(initialVolumes);
   }, [tracks]);
 
   // Create meters for each track when pools are ready

@@ -52,21 +52,26 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
   };
 
   /**
-   * Determines grid subdivision level based on zoom
-   * Returns: { subdivision: number, showSubdivisions: boolean }
+   * Determines grid subdivision level based on snap value (when enabled) or zoom
+   * Returns: { subdivision: number }
    */
-  const getGridSubdivision = (zoom: number): { subdivision: number, showSubdivisions: boolean, showSixteenths: boolean } => {
-    // zoom is pixels per beat
+  const getGridSubdivision = (zoom: number): { subdivision: number } => {
+    // If snap is enabled, use the snap value to determine grid lines
+    if (snapEnabled) {
+      // Use exactly the snap value for grid spacing
+      return { subdivision: snapValue };
+    }
 
+    // Otherwise, use zoom-based grid (original behavior)
     if (zoom < 60) {
       // Very zoomed out - only show beats (quarters)
-      return { subdivision: 1, showSubdivisions: false, showSixteenths: false };
+      return { subdivision: 1 };
     } else if (zoom < 120) {
       // Medium zoom - show eighths
-      return { subdivision: 0.5, showSubdivisions: true, showSixteenths: false };
+      return { subdivision: 0.5 };
     } else {
       // Very zoomed in - show sixteenths
-      return { subdivision: 0.25, showSubdivisions: true, showSixteenths: true };
+      return { subdivision: 0.25 };
     }
   };
 
@@ -386,21 +391,22 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
             {/* Time ruler */}
             <div className="relative h-8 bg-gray-900 border-b border-white/10">
               {(() => {
-                const { subdivision, showSubdivisions, showSixteenths } = getGridSubdivision(zoom);
+                const { subdivision } = getGridSubdivision(zoom);
                 const totalBeats = Math.ceil(maxDuration);
                 const markers: JSX.Element[] = [];
 
                 for (let beat = 0; beat <= totalBeats; beat += subdivision) {
-                  const bar = Math.floor(beat / 4) + 1;
-                  const beatInBar = (beat % 4);
-                  const isMeasureStart = beat % 4 === 0;
-                  const isBeatStart = beat % 1 === 0;
-                  const isEighthNote = beat % 0.5 === 0 && beat % 1 !== 0;
-                  const isSixteenthNote = beat % 0.25 === 0 && beat % 0.5 !== 0;
+                  // Round to avoid floating point errors
+                  const roundedBeat = Math.round(beat / subdivision) * subdivision;
+                  const bar = Math.floor(roundedBeat / 4) + 1;
+                  const beatInBar = (roundedBeat % 4);
+                  const isMeasureStart = Math.abs(roundedBeat % 4) < 0.001;
+                  const isBeatStart = Math.abs(roundedBeat % 1) < 0.001;
 
                   let borderClass = '';
                   let labelContent = null;
 
+                  // Highlight measure starts with thicker border
                   if (isMeasureStart) {
                     borderClass = 'border-l-2 border-gray-500';
                     labelContent = (
@@ -408,17 +414,17 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
                         {bar}
                       </span>
                     );
-                  } else if (isBeatStart) {
+                  } else if (isBeatStart && subdivision < 1) {
+                    // Show beat labels only when subdivision is smaller than a beat
                     borderClass = 'border-l border-gray-600';
                     labelContent = (
                       <span className="text-xs text-gray-400 absolute top-0.5 left-1">
                         {Math.floor(beatInBar) + 1}
                       </span>
                     );
-                  } else if (isEighthNote && showSubdivisions) {
+                  } else {
+                    // Regular subdivision line
                     borderClass = 'border-l border-gray-700/50';
-                  } else if (isSixteenthNote && showSixteenths) {
-                    borderClass = 'border-l border-gray-800/30';
                   }
 
                   markers.push(
@@ -443,25 +449,26 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
                 <div key={track.id} className="relative h-20 bg-gray-950 border-b border-white/5">
                   {/* Grid lines */}
                   {(() => {
-                    const { subdivision, showSubdivisions, showSixteenths } = getGridSubdivision(zoom);
+                    const { subdivision } = getGridSubdivision(zoom);
                     const totalBeats = Math.ceil(maxDuration);
                     const gridLines: JSX.Element[] = [];
 
+                    // Draw grid lines at snap subdivision interval
                     for (let beat = 0; beat <= totalBeats; beat += subdivision) {
-                      const isMeasureStart = beat % 4 === 0;
-                      const isBeatStart = beat % 1 === 0;
-                      const isEighthNote = beat % 0.5 === 0 && beat % 1 !== 0;
+                      // Round to avoid floating point errors
+                      const roundedBeat = Math.round(beat / subdivision) * subdivision;
+                      const isMeasureStart = Math.abs(roundedBeat % 4) < 0.001;
+                      const isBeatStart = Math.abs(roundedBeat % 1) < 0.001;
 
                       let borderClass = '';
 
+                      // Highlight measure starts with stronger border
                       if (isMeasureStart) {
                         borderClass = 'border-l border-gray-700';
-                      } else if (isBeatStart) {
+                      } else if (isBeatStart && subdivision < 1) {
                         borderClass = 'border-l border-gray-800/70';
-                      } else if (isEighthNote && showSubdivisions) {
+                      } else {
                         borderClass = 'border-l border-gray-800/40';
-                      } else if (showSixteenths) {
-                        borderClass = 'border-l border-gray-800/20';
                       }
 
                       gridLines.push(
