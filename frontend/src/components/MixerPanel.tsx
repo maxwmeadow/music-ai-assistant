@@ -50,7 +50,22 @@ export function MixerPanel({ tracks, onVolumeChange }: MixerPanelProps) {
       }
     }, 100);
 
-    return () => clearInterval(checkInterval);
+    return () => {
+      clearInterval(checkInterval);
+      // Dispose all Tone.Meter objects to prevent memory leaks
+      Object.values(meters).forEach((meter: any) => {
+        try {
+          if (meter && typeof meter.dispose === 'function') {
+            meter.dispose();
+          }
+          if (meter && typeof meter.disconnect === 'function') {
+            meter.disconnect();
+          }
+        } catch (e) {
+          console.warn('Error disposing meter:', e);
+        }
+      });
+    };
   }, [meters]);
 
   // Monitor actual audio levels from meters

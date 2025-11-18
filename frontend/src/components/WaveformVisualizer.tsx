@@ -265,6 +265,11 @@ export default function WaveformVisualizer({
       ctx.setLineDash([]);
     }
 
+    // Cleanup function
+    return () => {
+      // Clear canvas on unmount
+      ctx.clearRect(0, 0, width, h);
+    };
   }, [waveformData, segments, localOnsets, localOffsets, selectedSegmentIndex, canvasWidth, height, hoveredMarkerIndex, dragState, previewPair, editable]);
 
   // Mouse move handler

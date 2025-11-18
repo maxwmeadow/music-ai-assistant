@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { AppError } from "@/lib/errorHandler";
+import { Spinner } from "@/components/Spinner";
 import { CodeEditor } from "@/components/CodeEditor";
 import { MixerPanel } from "@/components/MixerPanel";
 import { api } from "@/lib/api";
@@ -52,9 +54,18 @@ export default function Home() {
   const [leftPanelWidth, setLeftPanelWidth] = useState(50); // percentage
   const [isResizing, setIsResizing] = useState(false);
 
+  const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   const showToast = (message: string) => {
+    // Clear any existing timeout
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
     setToast(message);
-    setTimeout(() => setToast(null), 3000);
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast(null);
+      toastTimeoutRef.current = null;
+    }, 3000);
   };
 
   const fetchTest = async () => {
@@ -68,9 +79,10 @@ export default function Home() {
       setTracks(parsedTracks);
 
       showToast("Sample code loaded");
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      showToast("Failed to load sample");
+      const errorMessage = error instanceof AppError ? error.userMessage : "Failed to load sample";
+      showToast(errorMessage);
     } finally {
       setLoadingTest(false);
     }
@@ -92,9 +104,10 @@ export default function Home() {
       setTracks(parsedTracks);
 
       showToast("Code compiled successfully");
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      showToast("Compilation failed");
+      const errorMessage = error instanceof AppError ? error.userMessage : "Compilation failed. Check your code syntax and try again.";
+      showToast(errorMessage);
     } finally {
       setLoadingRun(false);
     }
@@ -175,25 +188,94 @@ export default function Home() {
       (window as any).__autoStopTimeout = stopTimeout;
 
       showToast(`Playing (${maxDuration.toFixed(1)}s)...`);
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      showToast("Playback error");
+      const errorMessage = error instanceof AppError 
+        ? error.userMessage 
+        : "Playback failed. Check that samples are loaded and the audio context is ready.";
+      showToast(errorMessage);
       setIsPlaying(false);
     } finally {
       setLoadingPlay(false);
     }
   };
 
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      // Clear toast timeout
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+      // Stop audio if playing - inline cleanup to avoid dependency
+      if ((window as any).__autoStopTimeout) {
+        clearTimeout((window as any).__autoStopTimeout);
+      }
+      if ((window as any).__musicControls?.stop) {
+        (window as any).__musicControls.stop();
+      }
+      if ((window as any).Tone?.Transport) {
+        try {
+          (window as any).Tone.Transport.cancel();
+          (window as any).Tone.Transport.stop();
+        } catch (e) {
+          // Ignore errors during cleanup
+        }
+      }
+    };
+  }, []);
+
   const stopAudio = () => {
+    // Clear auto-stop timeout
     if ((window as any).__autoStopTimeout) {
       clearTimeout((window as any).__autoStopTimeout);
+      (window as any).__autoStopTimeout = null;
     }
 
+    // Stop Tone.js transport
     if ((window as any).__musicControls?.stop) {
       (window as any).__musicControls.stop();
-      setIsPlaying(false);
-      showToast("Stopped");
     }
+
+    // Dispose all Tone.js objects to prevent memory leaks
+    if ((window as any).__musicControls?.pools && (window as any).Tone) {
+      const pools = (window as any).__musicControls.pools;
+      pools.forEach((pool: any, trackId: string) => {
+        if (pool?.voices) {
+          pool.voices.forEach((voice: any) => {
+            try {
+              // Dispose Tone.js objects
+              if (voice.dispose) {
+                voice.dispose();
+              }
+              // Disconnect all connections
+              if (voice.disconnect) {
+                voice.disconnect();
+              }
+            } catch (e) {
+              console.warn(`Error disposing voice for track ${trackId}:`, e);
+            }
+          });
+        }
+      });
+      // Clear the pools map
+      pools.clear();
+    }
+
+    // Cancel all scheduled events
+    if ((window as any).Tone?.Transport) {
+      try {
+        (window as any).Tone.Transport.cancel();
+        (window as any).Tone.Transport.stop();
+      } catch (e) {
+        console.warn('Error stopping Tone.Transport:', e);
+      }
+    }
+
+    // Clear music controls
+    (window as any).__musicControls = null;
+    setIsPlaying(false);
+    showToast("Stopped");
   };
 
   const handleMelodyGenerated = async (result: any) => {
@@ -213,9 +295,12 @@ export default function Home() {
         console.log("[DEBUG] No visualization data, using IR directly");
         await applyIRAndCompile(result.ir);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to process melody:", error);
-      showToast("Failed to process melody");
+      const errorMessage = error instanceof AppError 
+        ? error.userMessage 
+        : "Failed to process melody. Please try again.";
+      showToast(errorMessage);
     }
 
     // Close recorder after generation, UNLESS it's drums with visualization
@@ -227,7 +312,10 @@ export default function Home() {
     }
   };
 
+  const [loadingCompile, setLoadingCompile] = useState(false);
+
   const applyIRAndCompile = async (ir: any) => {
+    setLoadingCompile(true);
     showToast("Converting to DSL...");
 
     try {
@@ -250,9 +338,14 @@ export default function Home() {
       } else {
         showToast("Failed to convert to DSL");
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to convert IR to DSL:", error);
-      showToast("Conversion failed");
+      const errorMessage = error instanceof AppError 
+        ? error.userMessage 
+        : "Failed to convert to DSL. Please try again.";
+      showToast(errorMessage);
+    } finally {
+      setLoadingCompile(false);
     }
   };
 
@@ -446,12 +539,16 @@ export default function Home() {
         <div className="flex items-center gap-2 border-r border-gray-700 pr-4">
           {!isPlaying ? (
             <button
-              disabled={loadingPlay || !executableCode}
+              disabled={loadingPlay || !executableCode || loadingRun || loadingCompile}
               onClick={playAudio}
               className="flex items-center justify-center w-10 h-10 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg transition-colors"
               title="Play (Space)"
             >
-              <Play className="w-5 h-5" />
+              {loadingPlay ? (
+                <Spinner size="sm" />
+              ) : (
+                <Play className="w-5 h-5" />
+              )}
             </button>
           ) : (
             <button
@@ -464,11 +561,18 @@ export default function Home() {
           )}
 
           <button
-            disabled={loadingRun}
+            disabled={loadingRun || loadingCompile}
             onClick={sendToRunner}
-            className="px-4 py-2 bg-[#2a2a2a] hover:bg-[#333] disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors border border-gray-700"
+            className="px-4 py-2 bg-[#2a2a2a] hover:bg-[#333] disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors border border-gray-700 flex items-center gap-2"
           >
-            {loadingRun ? "Compiling..." : "Compile"}
+            {loadingRun ? (
+              <>
+                <Spinner size="sm" />
+                Compiling...
+              </>
+            ) : (
+              "Compile"
+            )}
           </button>
         </div>
 
@@ -545,9 +649,16 @@ export default function Home() {
           <button
             disabled={loadingTest}
             onClick={fetchTest}
-            className="px-4 py-2 bg-[#2a2a2a] hover:bg-[#333] disabled:opacity-50 text-gray-300 border border-gray-700 rounded-lg text-sm transition-colors"
+            className="px-4 py-2 bg-[#2a2a2a] hover:bg-[#333] disabled:opacity-50 text-gray-300 border border-gray-700 rounded-lg text-sm transition-colors flex items-center gap-2"
           >
-            {loadingTest ? "Loading..." : "Load Sample"}
+            {loadingTest ? (
+              <>
+                <Spinner size="sm" />
+                Loading...
+              </>
+            ) : (
+              "Load Sample"
+            )}
           </button>
         </div>
       </div>

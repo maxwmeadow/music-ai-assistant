@@ -154,6 +154,12 @@ const DrumOnsetVisualizer: React.FC<DrumOnsetVisualizerProps> = ({
         ctx.fillText(drumLabel, barX + 3, barY + barHeight - 3);
       }
     });
+
+    // Cleanup function
+    return () => {
+      // Clear canvas on unmount
+      ctx.clearRect(0, 0, width, height);
+    };
   }, [visualization, hoveredOnset]);
 
   // Handle mouse move for hover effects

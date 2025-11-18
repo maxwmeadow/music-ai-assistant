@@ -11,7 +11,9 @@ export function WaveformCanvas({ analyser, height = 80, width = 400 }: { analyse
         const canvas = canvasRef.current;
         if (!canvas || !analyser) return;
 
-        const ctx = canvas.getContext("2d")!;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+
         canvas.width = width * devicePixelRatio;
         canvas.height = height * devicePixelRatio;
         canvas.style.width = `${width}px`;
@@ -22,11 +24,16 @@ export function WaveformCanvas({ analyser, height = 80, width = 400 }: { analyse
         const bufferLen = analyser.fftSize;
         const dataArray = new Uint8Array(bufferLen);
 
-        function draw() {
-            rafRef.current = requestAnimationFrame(draw);
-            analyser?.getByteTimeDomainData(dataArray);
+        let isActive = true;
 
-            ctx.fillStyle = "transparent";
+        function draw() {
+            if (!isActive) return;
+            rafRef.current = requestAnimationFrame(draw);
+            
+            if (!analyser) return;
+            analyser.getByteTimeDomainData(dataArray);
+
+            // Clear canvas properly
             ctx.clearRect(0, 0, width, height);
 
             ctx.lineWidth = 2;
@@ -49,7 +56,13 @@ export function WaveformCanvas({ analyser, height = 80, width = 400 }: { analyse
         draw();
 
         return () => {
-            if (rafRef.current) cancelAnimationFrame(rafRef.current);
+            isActive = false;
+            if (rafRef.current) {
+                cancelAnimationFrame(rafRef.current);
+                rafRef.current = null;
+            }
+            // Clear canvas context
+            ctx.clearRect(0, 0, width, height);
         };
     }, [analyser, height, width]);
 
