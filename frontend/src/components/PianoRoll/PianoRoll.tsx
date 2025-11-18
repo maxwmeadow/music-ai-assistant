@@ -47,10 +47,13 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
   const [isBoxSelecting, setIsBoxSelecting] = useState(false);
   const [boxStart, setBoxStart] = useState<{ x: number; y: number } | null>(null);
   const [boxEnd, setBoxEnd] = useState<{ x: number; y: number } | null>(null);
+  const [potentialBoxSelect, setPotentialBoxSelect] = useState<{ x: number; y: number } | null>(null);
 
   // Clipboard state
   const [clipboard, setClipboard] = useState<PianoRollNote[]>([]);
   const [clipboardOriginTime, setClipboardOriginTime] = useState<number>(0);
+  const [mousePosition, setMousePosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [showPastePreview, setShowPastePreview] = useState(false);
 
   const canvasRef = useRef<HTMLDivElement>(null);
 
@@ -456,10 +459,8 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
       setSelectedNotes(new Set());
     }
 
-    // Start box selection or note drawing based on drag
-    setIsBoxSelecting(true);
-    setBoxStart({ x, y });
-    setBoxEnd({ x, y });
+    // Mark potential box selection - will only activate if user drags
+    setPotentialBoxSelect({ x, y });
   };
 
 
@@ -469,6 +470,25 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
     const rect = canvasRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left - PIANO_WIDTH;
     const y = e.clientY - rect.top;
+
+    // Track mouse position for paste-at-cursor functionality
+    setMousePosition({ x, y });
+
+    // Check if we should activate box selection from potential click
+    if (potentialBoxSelect && !isBoxSelecting) {
+      const dragDistance = Math.sqrt(
+        Math.pow(x - potentialBoxSelect.x, 2) + Math.pow(y - potentialBoxSelect.y, 2)
+      );
+
+      // Only activate box selection if user has dragged at least 5 pixels
+      if (dragDistance > 5) {
+        setIsBoxSelecting(true);
+        setBoxStart(potentialBoxSelect);
+        setBoxEnd({ x, y });
+        setPotentialBoxSelect(null);
+      }
+      return;
+    }
 
     // Box selection
     if (isBoxSelecting && boxStart) {
@@ -511,6 +531,10 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
   const handleCanvasMouseUp = (e: React.MouseEvent) => {
     if (!canvasRef.current) return;
 
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left - PIANO_WIDTH;
+    const y = e.clientY - rect.top;
+
     // End box selection
     if (isBoxSelecting) {
       setIsBoxSelecting(false);
@@ -519,10 +543,31 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
       return;
     }
 
+    // If there was a potential box select that never activated (single click on empty space)
+    // Create a new note at that position
+    if (potentialBoxSelect && x >= 0) {
+      const clickedBeats = xToTime(potentialBoxSelect.x);
+      const snappedBeats = snapToGrid(clickedBeats);
+      const pitch = yToPitch(potentialBoxSelect.y);
+
+      const notes = parseNotesFromDSL(track.id);
+      notes.push({
+        pitch,
+        start: snappedBeats,
+        duration: snapValue,
+        velocity: 0.8
+      });
+
+      updateDSLWithNewNotes(notes);
+      setPotentialBoxSelect(null);
+      return;
+    }
+
+    // Clear potential box select
+    setPotentialBoxSelect(null);
+
     // Note drawing
     if (isDrawing && drawStart) {
-      const rect = canvasRef.current.getBoundingClientRect();
-      const x = e.clientX - rect.left - PIANO_WIDTH;
       const endBeats = xToTime(x);
 
       // Calculate the raw drag distance
@@ -673,11 +718,11 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
 
     const notes = parseNotesFromDSL(track.id);
 
-    // Paste at the current playback position (in beats) or at origin if not playing
-    const pasteTime = isPlaying ? secondsToBeats(currentTime) : clipboardOriginTime;
+    // Paste at mouse position (snapped to grid)
+    const pasteBeats = snapToGrid(xToTime(mousePosition.x));
 
     // Calculate offset from original position
-    const timeOffset = pasteTime - clipboardOriginTime;
+    const timeOffset = pasteBeats - clipboardOriginTime;
 
     // Create new notes with offset time
     const newNotes = clipboard.map(note => ({
@@ -696,6 +741,10 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
       newSelection.add(startIndex + i);
     }
     setSelectedNotes(newSelection);
+
+    // Show brief visual feedback
+    setShowPastePreview(true);
+    setTimeout(() => setShowPastePreview(false), 300);
   };
 
   const handleQuantize = (gridValue: number) => {
@@ -756,6 +805,19 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
     setSelectedNotes(newSelection);
   };
 
+  const handleInvertSelection = () => {
+    const notes = parseNotesFromDSL(track.id);
+    const newSelection = new Set<number>();
+
+    notes.forEach((_, idx) => {
+      if (!selectedNotes.has(idx)) {
+        newSelection.add(idx);
+      }
+    });
+
+    setSelectedNotes(newSelection);
+  };
+
   useEffect(() => {
     if (draggingNote || resizingNote) {
       window.addEventListener('mousemove', handleMouseMove);
@@ -813,6 +875,18 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
         e.preventDefault();
         handleDuplicate();
       }
+
+      // Deselect all: Escape
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setSelectedNotes(new Set());
+      }
+
+      // Invert selection: Ctrl+I / Cmd+I
+      if (ctrlOrCmd && e.key === 'i') {
+        e.preventDefault();
+        handleInvertSelection();
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
@@ -824,6 +898,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
     startY: number;
     initialVelocity: number;
   } | null>(null);
+  const [hoveredVelocityNote, setHoveredVelocityNote] = useState<number | null>(null);
   const velocityCanvasRef = useRef<HTMLDivElement>(null);
 
   const handleVelocityMouseDown = (e: React.MouseEvent, noteIndex: number) => {
@@ -881,6 +956,11 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
             Click piano keys to preview • Click and drag grid to create notes • Drag notes to move • Delete key to
             remove
           </p>
+          {selectedNotes.size > 0 && (
+            <p className="text-xs text-blue-400 font-semibold mt-1">
+              {selectedNotes.size} note{selectedNotes.size > 1 ? 's' : ''} selected
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-4">
           {!samplerLoaded && track.instrument && (
@@ -1115,6 +1195,23 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
               />
             )}
 
+            {/* Paste preview animation */}
+            {showPastePreview && (
+              <div
+                className="absolute border-2 border-green-400 bg-green-400/30 pointer-events-none animate-pulse rounded"
+                style={{
+                  left: `${timeToX(snapToGrid(xToTime(mousePosition.x)))}px`,
+                  top: `${mousePosition.y - 20}px`,
+                  width: '60px',
+                  height: '40px',
+                }}
+              >
+                <div className="text-green-100 text-xs font-bold text-center pt-2">
+                  Pasted!
+                </div>
+              </div>
+            )}
+
             {/* Playback cursor */}
             {isPlaying && (
               <div
@@ -1159,13 +1256,18 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
               {/* Velocity bars for each note */}
               {notes.map((note, idx) => {
                 const isSelected = selectedNotes.has(idx);
+                const isHovered = hoveredVelocityNote === idx;
                 const barHeight = note.velocity * 100; // 0-1 → 0-100px
+                const percentage = Math.round(note.velocity * 100);
 
                 return (
                   <div
                     key={idx}
-                    className={`absolute cursor-ns-resize ${isSelected ? 'bg-purple-400' : 'bg-purple-600/70'
-                      } hover:bg-purple-400 transition-colors`}
+                    className={`absolute cursor-ns-resize ${
+                      isSelected
+                        ? 'bg-gradient-to-t from-purple-500 via-purple-400 to-purple-300'
+                        : 'bg-gradient-to-t from-purple-700 via-purple-600 to-purple-500'
+                      } hover:brightness-110 transition-all shadow-lg`}
                     style={{
                       left: `${timeToX(note.start)}px`,
                       bottom: '0px',
@@ -1173,11 +1275,13 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
                       height: `${barHeight}px`,
                     }}
                     onMouseDown={(e) => handleVelocityMouseDown(e, idx)}
-                    title={`Velocity: ${note.velocity.toFixed(2)}`}
+                    onMouseEnter={() => setHoveredVelocityNote(idx)}
+                    onMouseLeave={() => setHoveredVelocityNote(null)}
+                    title={`Velocity: ${percentage}%`}
                   >
-                    {isSelected && (
-                      <div className="absolute top-0 left-0 right-0 text-center text-xs text-white font-bold">
-                        {note.velocity.toFixed(2)}
+                    {(isSelected || isHovered) && (
+                      <div className="absolute -top-5 left-0 right-0 text-center text-xs text-white font-bold bg-purple-900/80 rounded px-1">
+                        {percentage}%
                       </div>
                     )}
                   </div>
