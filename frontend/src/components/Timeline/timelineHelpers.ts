@@ -79,7 +79,7 @@ export function pitchToNote(pitch: number): string {
  */
 function expandLoops(dslCode: string): string {
   let expandedCode = dslCode;
-  let maxIterations = 100;
+  const maxIterations = 100;
   let iteration = 0;
 
   // Pattern for time-based loops
