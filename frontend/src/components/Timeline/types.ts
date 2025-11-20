@@ -4,6 +4,7 @@ export interface TimelineNote {
   duration: number;
   velocity: number;
   isChord?: boolean;
+  isFromLoop?: boolean; // True if this note was generated from a loop block
 }
 
 export interface SelectedNote {
@@ -16,6 +17,9 @@ export interface DraggingNote {
   noteIndex: number;
   startX: number;
   initialStart: number;
+  currentStart?: number; // Temporary visual state during drag
+  selectedNotes?: SelectedNote[]; // For multi-selection dragging
+  committed?: boolean; // True when mouse is released but visual state is still active
 }
 
 export interface ResizingNote {
@@ -23,6 +27,8 @@ export interface ResizingNote {
   noteIndex: number;
   startX: number;
   initialDuration: number;
+  currentDuration?: number; // Temporary visual state during resize
+  committed?: boolean; // True when mouse is released but visual state is still active
 }
 
 export interface CopiedNote {

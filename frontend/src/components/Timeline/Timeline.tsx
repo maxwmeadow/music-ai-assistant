@@ -15,7 +15,10 @@ import {
   handleCopyNotes,
   handlePasteNotes,
   handleNoteDrag,
-  handleNoteResize
+  handleNoteResize,
+  handleMultiNoteDrag,
+  calculateNoteDrag,
+  calculateNoteResize
 } from "./timelineHandlers";
 import {
   TimelineNote,
@@ -34,28 +37,110 @@ interface TimelineProps {
   currentTime: number;
   onSeek?: (time: number) => void;
   isLoading?: boolean;
+  loopEnabled?: boolean;
+  loopStart?: number;
+  loopEnd?: number;
+  onLoopChange?: (start: number, end: number) => void;
 }
 
-export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime, onSeek, isLoading = false }: TimelineProps) {
+export function Timeline({
+  tracks,
+  dslCode,
+  onCodeChange,
+  isPlaying,
+  currentTime,
+  onSeek,
+  isLoading = false,
+  loopEnabled = false,
+  loopStart = 0,
+  loopEnd = 4,
+  onLoopChange
+}: TimelineProps) {
   const [zoom, setZoom] = useState(50);
   const [selectedNotes, setSelectedNotes] = useState<SelectedNote[]>([]);
   const [lastSelectedNote, setLastSelectedNote] = useState<SelectedNote | null>(null); // For shift-select range
   const [draggingNote, setDraggingNote] = useState<DraggingNote | null>(null);
   const [resizingNote, setResizingNote] = useState<ResizingNote | null>(null);
   const [isDraggingPlayhead, setIsDraggingPlayhead] = useState(false);
+  const [isDraggingLoop, setIsDraggingLoop] = useState(false);
+  const [loopDragStartX, setLoopDragStartX] = useState(0);
+  const [loopDragStartTime, setLoopDragStartTime] = useState(0);
   const timelineRef = useRef<HTMLDivElement>(null);
+  const loopBarRef = useRef<HTMLDivElement>(null);
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [snapValue, setSnapValue] = useState(0.25);
   const [copiedNotes, setCopiedNotes] = useState<CopiedNotes | null>(null);
 
   const tempo = getTempoFromDSL(dslCode);
 
+  // Clear visual state only AFTER DSL has been updated with the correct position
+  useEffect(() => {
+    if (draggingNote?.committed && draggingNote.currentStart !== undefined) {
+      // Verify the DSL has actually been updated with the new position
+      const notes = parseNotesFromDSL(dslCode, draggingNote.trackId, tempo);
+      const note = notes[draggingNote.noteIndex];
+
+      // Only clear visual state if the DSL matches our expected position (within tolerance)
+      if (note && Math.abs(note.start - draggingNote.currentStart) < 0.01) {
+        requestAnimationFrame(() => {
+          setDraggingNote(null);
+        });
+      }
+    } else if (resizingNote?.committed && resizingNote.currentDuration !== undefined) {
+      // Verify the DSL has actually been updated with the new duration
+      const notes = parseNotesFromDSL(dslCode, resizingNote.trackId, tempo);
+      const note = notes[resizingNote.noteIndex];
+
+      // Only clear visual state if the DSL matches our expected duration (within tolerance)
+      if (note && Math.abs(note.duration - resizingNote.currentDuration) < 0.01) {
+        requestAnimationFrame(() => {
+          setResizingNote(null);
+        });
+      }
+    }
+  }, [dslCode, draggingNote, resizingNote]);
+
   const handleNoteMouseDown = (e: React.MouseEvent, trackId: string, noteIndex: number, isResize: boolean) => {
     e.stopPropagation();
     const notes = parseNotesFromDSL(dslCode, trackId, tempo);
+    const note = notes[noteIndex];
+
+    // Check if this is a loop-generated note (read-only)
+    if (note?.isFromLoop) {
+      alert('This note is from a loop block and cannot be edited in the timeline.\n\nTo edit it, modify the loop in the code editor.');
+      return;
+    }
+
     const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
     const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
     const shift = e.shiftKey;
+    const clickedNote = { trackId, noteIndex };
+    const isAlreadySelected = selectedNotes.some(n => n.trackId === trackId && n.noteIndex === noteIndex);
+
+    // Handle selection BEFORE setting drag state
+    if (ctrlOrCmd) {
+      // Ctrl/Cmd+Click: Toggle selection
+      if (isAlreadySelected) {
+        setSelectedNotes(selectedNotes.filter(n => !(n.trackId === trackId && n.noteIndex === noteIndex)));
+      } else {
+        setSelectedNotes([...selectedNotes, clickedNote]);
+      }
+      setLastSelectedNote(clickedNote);
+    } else if (shift && lastSelectedNote && lastSelectedNote.trackId === trackId) {
+      // Shift+Click: Select range (only within same track)
+      const start = Math.min(lastSelectedNote.noteIndex, noteIndex);
+      const end = Math.max(lastSelectedNote.noteIndex, noteIndex);
+      const rangeSelection: SelectedNote[] = [];
+      for (let i = start; i <= end; i++) {
+        rangeSelection.push({ trackId, noteIndex: i });
+      }
+      setSelectedNotes(rangeSelection);
+    } else if (!isAlreadySelected) {
+      // Regular click on unselected note: Select single note
+      setSelectedNotes([clickedNote]);
+      setLastSelectedNote(clickedNote);
+    }
+    // If clicking an already-selected note without modifiers, keep selection (for multi-drag)
 
     if (isResize) {
       setResizingNote({
@@ -65,56 +150,68 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
         initialDuration: notes[noteIndex].duration
       });
     } else {
+      // Store all selected notes for multi-drag
       setDraggingNote({
         trackId,
         noteIndex,
         startX: e.clientX,
-        initialStart: notes[noteIndex].start
+        initialStart: notes[noteIndex].start,
+        selectedNotes: isAlreadySelected && selectedNotes.length > 1 ? selectedNotes : undefined
       });
-    }
-
-    // Handle multi-selection
-    const clickedNote = { trackId, noteIndex };
-
-    if (ctrlOrCmd) {
-      // Ctrl/Cmd+Click: Toggle selection
-      const isSelected = selectedNotes.some(n => n.trackId === trackId && n.noteIndex === noteIndex);
-      if (isSelected) {
-        setSelectedNotes(selectedNotes.filter(n => !(n.trackId === trackId && n.noteIndex === noteIndex)));
-      } else {
-        setSelectedNotes([...selectedNotes, clickedNote]);
-      }
-      setLastSelectedNote(clickedNote);
-    } else if (shift && lastSelectedNote && lastSelectedNote.trackId === trackId) {
-      // Shift+Click: Select range (only within same track)
-      const trackNotes = notes;
-      const start = Math.min(lastSelectedNote.noteIndex, noteIndex);
-      const end = Math.max(lastSelectedNote.noteIndex, noteIndex);
-      const rangeSelection: SelectedNote[] = [];
-      for (let i = start; i <= end; i++) {
-        rangeSelection.push({ trackId, noteIndex: i });
-      }
-      setSelectedNotes(rangeSelection);
-    } else {
-      // Regular click: Select single note
-      setSelectedNotes([clickedNote]);
-      setLastSelectedNote(clickedNote);
     }
   };
 
   const handleMouseMove = (e: MouseEvent) => {
-    if (draggingNote) {
+    if (draggingNote && !draggingNote.committed) {
+      // Only update if not committed (still actively dragging)
       const deltaX = e.clientX - draggingNote.startX;
-      handleNoteDrag(deltaX, zoom, draggingNote, dslCode, tempo, snapValue, snapEnabled, onCodeChange);
-    } else if (resizingNote) {
+      const newStart = calculateNoteDrag(deltaX, zoom, draggingNote.initialStart, snapValue, snapEnabled);
+
+      setDraggingNote({
+        ...draggingNote,
+        currentStart: newStart
+      });
+    } else if (resizingNote && !resizingNote.committed) {
+      // Only update if not committed (still actively resizing)
       const deltaX = e.clientX - resizingNote.startX;
-      handleNoteResize(deltaX, zoom, resizingNote, dslCode, tempo, snapValue, snapEnabled, onCodeChange);
+      const newDuration = calculateNoteResize(deltaX, zoom, resizingNote.initialDuration, snapValue, snapEnabled);
+
+      setResizingNote({
+        ...resizingNote,
+        currentDuration: newDuration
+      });
     }
   };
 
   const handleMouseUp = () => {
-    setDraggingNote(null);
-    setResizingNote(null);
+    // Mark as committed (stops mouse updates but keeps visual state until DSL updates)
+    if (draggingNote && draggingNote.currentStart !== undefined) {
+      const deltaBeats = draggingNote.currentStart - draggingNote.initialStart;
+
+      // Mark as committed to stop further mouse updates
+      setDraggingNote({
+        ...draggingNote,
+        committed: true
+      });
+
+      // Apply DSL changes (visual state will be cleared by useEffect when dslCode updates)
+      if (draggingNote.selectedNotes && draggingNote.selectedNotes.length > 1) {
+        handleMultiNoteDrag(deltaBeats, draggingNote.selectedNotes, dslCode, tempo, snapValue, snapEnabled, onCodeChange);
+      } else {
+        handleNoteDrag(deltaBeats * zoom, zoom, draggingNote, dslCode, tempo, snapValue, snapEnabled, onCodeChange);
+      }
+    } else if (resizingNote && resizingNote.currentDuration !== undefined) {
+      const deltaBeats = resizingNote.currentDuration - resizingNote.initialDuration;
+
+      // Mark as committed to stop further mouse updates
+      setResizingNote({
+        ...resizingNote,
+        committed: true
+      });
+
+      // Apply DSL changes (visual state will be cleared by useEffect when dslCode updates)
+      handleNoteResize(deltaBeats * zoom, zoom, resizingNote, dslCode, tempo, snapValue, snapEnabled, onCodeChange);
+    }
   };
 
   const handleTimelineClick = (e: React.MouseEvent) => {
@@ -147,6 +244,42 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
     setIsDraggingPlayhead(false);
   };
 
+  // Loop region drag handlers
+  const handleLoopBarMouseDown = (e: React.MouseEvent) => {
+    if (!onLoopChange || !loopBarRef.current) return;
+    e.stopPropagation();
+
+    const rect = loopBarRef.current.getBoundingClientRect();
+    // Loop bar is inside scrolling content, so rect.left already accounts for scroll
+    const clickX = e.clientX - rect.left;
+    const clickedBeats = clickX / zoom;
+    const clickedTime = beatsToSeconds(clickedBeats, tempo);
+
+    setLoopDragStartX(clickX);
+    setLoopDragStartTime(clickedTime);
+    setIsDraggingLoop(true);
+    onLoopChange(clickedTime, clickedTime);
+  };
+
+  const handleLoopDrag = (e: MouseEvent) => {
+    if (!isDraggingLoop || !onLoopChange || !loopBarRef.current || !timelineRef.current) return;
+
+    const rect = loopBarRef.current.getBoundingClientRect();
+    // Loop bar is inside scrolling content, so rect.left already accounts for scroll
+    const currentX = e.clientX - rect.left;
+    const currentBeats = currentX / zoom;
+    const currentTime = beatsToSeconds(currentBeats, tempo);
+
+    const start = Math.min(loopDragStartTime, currentTime);
+    const end = Math.max(loopDragStartTime, currentTime);
+
+    onLoopChange(Math.max(0, start), Math.max(0, end));
+  };
+
+  const handleLoopDragEnd = () => {
+    setIsDraggingLoop(false);
+  };
+
   // Mouse event listeners
   useEffect(() => {
     if (draggingNote || resizingNote) {
@@ -169,6 +302,17 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
       };
     }
   }, [isDraggingPlayhead, zoom, onSeek]);
+
+  useEffect(() => {
+    if (isDraggingLoop) {
+      window.addEventListener('mousemove', handleLoopDrag);
+      window.addEventListener('mouseup', handleLoopDragEnd);
+      return () => {
+        window.removeEventListener('mousemove', handleLoopDrag);
+        window.removeEventListener('mouseup', handleLoopDragEnd);
+      };
+    }
+  }, [isDraggingLoop, zoom, onLoopChange]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -199,6 +343,27 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedNotes, copiedNotes, currentTime]);
+
+  // Auto-scroll to keep playhead visible (like DAWs)
+  useEffect(() => {
+    if (!timelineRef.current || !isPlaying) return;
+
+    const container = timelineRef.current;
+    const playheadPosition = secondsToBeats(currentTime, tempo) * zoom;
+    const viewportLeft = container.scrollLeft;
+    const viewportRight = viewportLeft + container.clientWidth;
+    const scrollMargin = 100; // Keep playhead this many pixels from edge
+
+    // Check if playhead is going off the right edge
+    if (playheadPosition > viewportRight - scrollMargin) {
+      // Scroll to keep playhead at first 1/4 of viewport (more content ahead visible)
+      container.scrollLeft = playheadPosition - container.clientWidth / 4;
+    }
+    // Check if playhead is going off the left edge (when looping back)
+    else if (playheadPosition < viewportLeft + scrollMargin) {
+      container.scrollLeft = Math.max(0, playheadPosition - container.clientWidth / 4);
+    }
+  }, [currentTime, isPlaying, zoom, tempo]);
 
   const maxDuration = tracks.reduce((max, track) => {
     const notes = parseNotesFromDSL(dslCode, track.id, tempo);
@@ -272,9 +437,11 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
         <div className="flex-shrink-0">
           <div className="w-48 h-8 bg-gray-900 border-r border-white/10"></div>
           {tracks.map((track) => (
-            <div key={track.id} className="w-48 h-20 bg-gray-900 border-r border-b border-white/5 p-4">
-              <div className="text-white font-medium">{track.id}</div>
-              <div className="text-xs text-gray-500">{track.instrument?.split('/').pop()}</div>
+            <div key={track.id} className="w-48 h-20 bg-gray-900 border-r border-b border-white/5 p-2">
+              <div className="text-white font-medium text-sm">{track.id}</div>
+              <div className="text-xs text-gray-500">
+                {track.instrument?.split('/').pop()}
+              </div>
             </div>
           ))}
         </div>
@@ -292,6 +459,28 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
               className={`absolute top-0 bottom-0 w-[2px] bg-red-500 z-10 hover:bg-red-400 transition-colors ${isDraggingPlayhead ? 'cursor-grabbing bg-red-400' : 'cursor-grab'}`}
               style={{ left: `${secondsToBeats(currentTime, tempo) * zoom}px` }}
             />
+
+            {/* Loop Region Bar */}
+            {loopEnabled && (
+              <div
+                ref={loopBarRef}
+                className="relative h-6 bg-gray-800 border-b border-white/5 cursor-crosshair"
+                onMouseDown={handleLoopBarMouseDown}
+              >
+                {/* Loop region highlight */}
+                <div
+                  className="absolute top-0 bottom-0 bg-purple-600/30 border-l-2 border-r-2 border-purple-500"
+                  style={{
+                    left: `${secondsToBeats(loopStart, tempo) * zoom}px`,
+                    width: `${secondsToBeats(loopEnd - loopStart, tempo) * zoom}px`,
+                  }}
+                >
+                  <div className="absolute inset-0 flex items-center justify-center text-[10px] text-white font-semibold">
+                    LOOP
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Time ruler */}
             <div className="relative h-8 bg-gray-900 border-b border-white/10">
@@ -346,6 +535,7 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
             {/* Track timelines */}
             {tracks.map((track) => {
               const notes = parseNotesFromDSL(dslCode, track.id, tempo);
+
               return (
                 <div key={track.id} className="relative h-20 bg-gray-950 border-b border-white/5">
                   {/* Grid lines */}
@@ -385,16 +575,39 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
                   {notes.map((note, idx) => (
                     <div
                       key={idx}
-                      className={`absolute top-2 bottom-2 ${note.isChord
-                        ? 'bg-blue-600 hover:bg-blue-500'
-                        : 'bg-purple-600 hover:bg-purple-500'
+                      className={`absolute top-2 bottom-2 ${
+                        note.isFromLoop
+                          ? 'bg-gray-600 opacity-50' // Loop notes: gray and semi-transparent
+                          : note.isChord
+                            ? 'bg-blue-600 hover:bg-blue-500'
+                            : 'bg-purple-600 hover:bg-purple-500'
                         } rounded transition-colors ${selectedNotes.some(n => n.trackId === track.id && n.noteIndex === idx)
                           ? 'ring-2 ring-white'
                           : ''
-                        } ${draggingNote || resizingNote ? 'cursor-grabbing' : 'cursor-grab'}`}
+                        } ${
+                          note.isFromLoop
+                            ? 'cursor-not-allowed' // Loop notes: not editable
+                            : draggingNote || resizingNote
+                              ? 'cursor-grabbing'
+                              : 'cursor-grab'
+                        }`}
                       style={{
-                        left: `${note.start * zoom}px`,
-                        width: `${note.duration * zoom}px`,
+                        left: `${(() => {
+                          // Check if this note is being dragged (either primary or part of multi-selection)
+                          const isPrimaryDrag = draggingNote?.trackId === track.id && draggingNote?.noteIndex === idx;
+                          const isMultiDrag = draggingNote?.selectedNotes?.some(n => n.trackId === track.id && n.noteIndex === idx);
+
+                          if ((isPrimaryDrag || isMultiDrag) && draggingNote && draggingNote.currentStart !== undefined) {
+                            const delta = draggingNote.currentStart - draggingNote.initialStart;
+                            return (note.start + delta) * zoom;
+                          }
+                          return note.start * zoom;
+                        })()}px`,
+                        width: `${
+                          resizingNote?.trackId === track.id && resizingNote?.noteIndex === idx && resizingNote.currentDuration !== undefined
+                            ? resizingNote.currentDuration * zoom
+                            : note.duration * zoom
+                        }px`,
                       }}
                       onMouseDown={(e) => handleNoteMouseDown(e, track.id, idx, false)}
                     >
@@ -402,11 +615,13 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
                         {pitchToNote(note.pitch)}{note.isChord ? ' ♫' : ''}
                       </div>
 
-                      {/* Resize handle */}
-                      <div
-                        className="absolute right-0 top-0 bottom-0 w-2 bg-white/30 hover:bg-white/50 cursor-ew-resize"
-                        onMouseDown={(e) => handleNoteMouseDown(e, track.id, idx, true)}
-                      />
+                      {/* Resize handle - hidden for loop notes */}
+                      {!note.isFromLoop && (
+                        <div
+                          className="absolute right-0 top-0 bottom-0 w-2 bg-white/30 hover:bg-white/50 cursor-ew-resize"
+                          onMouseDown={(e) => handleNoteMouseDown(e, track.id, idx, true)}
+                        />
+                      )}
                     </div>
                   ))}
                 </div>

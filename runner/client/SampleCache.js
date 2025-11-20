@@ -4,8 +4,9 @@
  */
 
 class SampleCache {
-    constructor(cdnBaseUrl = 'https://pub-e7b8ae5d5dcb4e23b0bf02e7b966c2f7.r2.dev') {
+    constructor(cdnBaseUrl = 'https://pub-e7b8ae5d5dcb4e23b0bf02e7b966c2f7.r2.dev', runnerUrl = 'http://localhost:5001') {
         this.cdnBaseUrl = cdnBaseUrl;
+        this.runnerUrl = runnerUrl;
         this.mappingCache = new Map(); // instrumentPath -> mapping
         this.sampleDataCache = new Map(); // full URL -> ArrayBuffer
         this.pendingMappings = new Map(); // instrumentPath -> Promise
@@ -19,7 +20,8 @@ class SampleCache {
         if (this.catalog) return this.catalog;
 
         try {
-            const response = await fetch(`${this.cdnBaseUrl}/catalog.json`);
+            // Catalog is served by the runner server, not CDN
+            const response = await fetch(`${this.runnerUrl}/catalog.json`);
             this.catalog = await response.json();
             console.log('[SampleCache] Loaded catalog with', this.catalog.instruments.length, 'instruments');
             return this.catalog;

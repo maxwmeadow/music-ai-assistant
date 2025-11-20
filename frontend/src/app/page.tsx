@@ -6,7 +6,7 @@ import { MixerPanel } from "@/components/MixerPanel";
 import { api } from "@/lib/api";
 import { RecorderControls } from "@/components/RecorderControls";
 import { parseTracksFromDSL, ParsedTrack } from "@/lib/dslParser";
-import { Mic, Music, Drum, Play, Square, Sparkles, Sliders, Piano, ChevronDown, Undo, Redo } from "lucide-react";
+import { Mic, Music, Drum, Play, Square, Sparkles, Sliders, Piano, ChevronDown, Undo, Redo, Radio, Repeat } from "lucide-react";
 import { Timeline } from "@/components/Timeline/Timeline";
 import { PianoRoll } from "@/components/PianoRoll/PianoRoll";
 import DetectionTuner from "@/components/DetectionTuner";
@@ -40,6 +40,12 @@ export default function Home() {
   const [currentTime, setCurrentTime] = useState(0);
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
   const [selectedTrackForPianoRoll, setSelectedTrackForPianoRoll] = useState<string | null>(null);
+  const [metronomeEnabled, setMetronomeEnabled] = useState(false);
+
+  // Loop region state
+  const [loopEnabled, setLoopEnabled] = useState(false);
+  const [loopStart, setLoopStart] = useState(0);
+  const [loopEnd, setLoopEnd] = useState(4);
 
   // Detection Tuning State
   const [tuningMode, setTuningMode] = useState(false);
@@ -149,8 +155,19 @@ export default function Home() {
     try {
       await AudioService.initializeTone(trackVolumes);
 
+      // Check if we're at or past the end - if so, reset to beginning
       const transportState = AudioService.getTransportState();
-      const isResuming = transportState && transportState.seconds > 0 && transportState.state === 'paused';
+      const maxDuration = calculateMaxDuration();
+      const currentPosition = transportState?.seconds || 0;
+
+      if (currentPosition >= maxDuration - 0.1) {
+        // At the end, reset to beginning
+        AudioService.seek(0);
+        setCurrentTime(0);
+      }
+
+      const updatedTransportState = AudioService.getTransportState();
+      const isResuming = updatedTransportState && updatedTransportState.seconds > 0 && updatedTransportState.state === 'paused';
 
       // Load samples if not already preloaded
       if (!isResuming && !AudioService.areSamplesPreloaded()) {
@@ -168,12 +185,14 @@ export default function Home() {
         });
       }, 100);
 
-      // Set auto-stop timeout
-      const maxDuration = calculateMaxDuration();
-      const currentPosition = transportState?.seconds || 0;
-      const remainingTime = Math.max(0, maxDuration - currentPosition) + 1.5;
+      // Calculate current position for auto-stop (use updated state after potential reset)
+      const currentPositionForAutoStop = updatedTransportState?.seconds || 0;
 
-      AudioService.setAutoStop(remainingTime, stopAudio);
+      // Set auto-stop timeout (only if not looping)
+      if (!loopEnabled) {
+        const remainingTime = Math.max(0, maxDuration - currentPositionForAutoStop) + 1.5;
+        AudioService.setAutoStop(remainingTime, stopAudio);
+      }
 
       showToast(isResuming ? 'Resumed' : `Playing (${maxDuration.toFixed(1)}s)...`);
     } catch (error) {
@@ -208,14 +227,161 @@ export default function Home() {
     AudioService.seek(time);
     setCurrentTime(time);
 
-    // Recalculate auto-stop timeout if playing
+    // Recalculate auto-stop timeout if playing (only if not looping)
     const transportState = AudioService.getTransportState();
-    if (isPlaying && transportState?.state === 'started') {
+    if (isPlaying && transportState?.state === 'started' && !loopEnabled) {
       const maxDuration = calculateMaxDuration();
       const remainingTime = Math.max(0, maxDuration - time) + 1.5;
       AudioService.setAutoStop(remainingTime, stopAudio);
     }
   };
+
+  // Metronome implementation using Tone.js
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    let metronome: any = null;
+    let synth: any = null;
+
+    const initMetronome = async () => {
+      if (!metronomeEnabled || !isPlaying) {
+        // Clean up existing metronome
+        if ((window as any).__metronome) {
+          (window as any).__metronome.stop();
+          (window as any).__metronome.dispose();
+          (window as any).__metronome = null;
+        }
+        if ((window as any).__metronomeSynth) {
+          (window as any).__metronomeSynth.dispose();
+          (window as any).__metronomeSynth = null;
+        }
+        if ((window as any).__metronomeChannel) {
+          (window as any).__metronomeChannel.dispose();
+          (window as any).__metronomeChannel = null;
+        }
+        return;
+      }
+
+      // Wait for Tone to be available
+      if (!(window as any).Tone) {
+        return;
+      }
+
+      const Tone = (window as any).Tone;
+      await Tone.start();
+
+      // Create a dedicated channel that bypasses Tone.Destination (so master volume doesn't affect it)
+      const metronomeChannel = new Tone.Channel({
+        volume: -6
+      }).connect(Tone.context.rawContext.destination);
+
+      // Create synth for metronome click - using FMSynth for punchy, clicky sound
+      synth = new Tone.FMSynth({
+        harmonicity: 3,
+        modulationIndex: 10,
+        oscillator: {
+          type: 'sine'
+        },
+        envelope: {
+          attack: 0.001,
+          decay: 0.01,
+          sustain: 0,
+          release: 0.01
+        },
+        modulation: {
+          type: 'square'
+        },
+        modulationEnvelope: {
+          attack: 0.0002,
+          decay: 0.02,
+          sustain: 0,
+          release: 0.01
+        }
+      }).connect(metronomeChannel);
+
+      (window as any).__metronomeChannel = metronomeChannel;
+
+      // Create loop that triggers on each beat
+      metronome = new Tone.Loop((time: number) => {
+        // Play different pitches for downbeat vs other beats
+        const measure = Math.floor(Tone.Transport.position.split(':')[0]);
+        const beat = Math.floor(Tone.Transport.position.split(':')[1]);
+
+        // Higher pitch on downbeat (first beat of measure)
+        const note = beat === 0 ? 'C5' : 'C4';
+        synth.triggerAttackRelease(note, '16n', time);
+      }, '4n'); // Trigger every quarter note
+
+      metronome.start(0);
+
+      // Store references for cleanup
+      (window as any).__metronome = metronome;
+      (window as any).__metronomeSynth = synth;
+    };
+
+    initMetronome();
+
+    return () => {
+      // Cleanup on unmount or when dependencies change
+      if ((window as any).__metronome) {
+        (window as any).__metronome.stop();
+        (window as any).__metronome.dispose();
+        (window as any).__metronome = null;
+      }
+      if ((window as any).__metronomeSynth) {
+        (window as any).__metronomeSynth.dispose();
+        (window as any).__metronomeSynth = null;
+      }
+      if ((window as any).__metronomeChannel) {
+        (window as any).__metronomeChannel.dispose();
+        (window as any).__metronomeChannel = null;
+      }
+    };
+  }, [metronomeEnabled, isPlaying]);
+
+  // Loop region implementation using Tone.Transport
+  useEffect(() => {
+    if (typeof window === 'undefined' || !(window as any).Tone) return;
+
+    const Tone = (window as any).Tone;
+
+    if (loopEnabled && isPlaying) {
+      // Enable looping and set loop points
+      Tone.Transport.loop = true;
+      Tone.Transport.loopStart = loopStart;
+      Tone.Transport.loopEnd = loopEnd;
+    } else {
+      // Disable looping
+      Tone.Transport.loop = false;
+    }
+  }, [loopEnabled, loopStart, loopEnd, isPlaying]);
+
+  // Auto-stop management: handle loop toggle during playback
+  useEffect(() => {
+    // Only react to loop toggle changes, not initial playback start
+    if (!isPlaying) return;
+
+    const transportState = AudioService.getTransportState();
+    if (!transportState || transportState.state !== 'started') return;
+
+    // Clear any existing auto-stop
+    AudioService.clearAutoStop();
+
+    if (!loopEnabled) {
+      // When loop is disabled during playback, set auto-stop for remaining time
+      const maxDuration = calculateMaxDuration();
+      const currentPosition = transportState.seconds || 0;
+      const remainingTime = Math.max(0, maxDuration - currentPosition) + 1.5;
+
+      if (remainingTime > 0) {
+        AudioService.setAutoStop(remainingTime, stopAudio);
+      } else {
+        // Already past the end, stop immediately
+        stopAudio();
+      }
+    }
+    // When loop is enabled, no auto-stop (plays indefinitely)
+  }, [loopEnabled]);
 
   // Poll transport time continuously
   useEffect(() => {
@@ -360,6 +526,7 @@ export default function Home() {
     }
   };
 
+
   // Handle resize drag
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -398,6 +565,17 @@ export default function Home() {
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
         return;
+      }
+
+      // Check if Monaco editor is focused (don't trigger space for play/pause while typing in editor)
+      if (target.classList.contains('monaco-editor') ||
+          target.closest('.monaco-editor') ||
+          target.classList.contains('view-line') ||
+          target.classList.contains('inputarea')) {
+        // Allow space to work normally in Monaco editor
+        if (e.key === ' ') {
+          return;
+        }
       }
 
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
@@ -614,6 +792,31 @@ export default function Home() {
           )}
 
           <button
+            onClick={() => setMetronomeEnabled(!metronomeEnabled)}
+            className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors ${
+              metronomeEnabled
+                ? 'bg-blue-600 hover:bg-blue-500 text-white'
+                : 'bg-[#2a2a2a] hover:bg-[#333] text-gray-400 border border-gray-700'
+            }`}
+            title={metronomeEnabled ? "Metronome On (M)" : "Metronome Off (M)"}
+          >
+            <Radio className="w-5 h-5" />
+          </button>
+
+          {/* Loop Controls */}
+          <button
+            onClick={() => setLoopEnabled(!loopEnabled)}
+            className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors ${
+              loopEnabled
+                ? 'bg-purple-600 hover:bg-purple-500 text-white'
+                : 'bg-[#2a2a2a] hover:bg-[#333] text-gray-400 border border-gray-700'
+            }`}
+            title={loopEnabled ? `Loop ${loopStart.toFixed(1)}s - ${loopEnd.toFixed(1)}s` : "Loop Off (L)"}
+          >
+            <Repeat className="w-5 h-5" />
+          </button>
+
+          <button
             disabled={loadingRun}
             onClick={sendToRunner}
             className="px-4 py-2 bg-[#2a2a2a] hover:bg-[#333] disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors border border-gray-700"
@@ -722,6 +925,13 @@ export default function Home() {
                 currentTime={currentTime}
                 onSeek={handleSeek}
                 isLoading={isLoadingAudio}
+                loopEnabled={loopEnabled}
+                loopStart={loopStart}
+                loopEnd={loopEnd}
+                onLoopChange={(start, end) => {
+                  setLoopStart(start);
+                  setLoopEnd(end);
+                }}
               />
             ) : (
               <div className="h-full flex items-center justify-center text-gray-500">

@@ -34,12 +34,17 @@ class MusicCompiler {
 
         console.log('[MusicCompiler] Compiling DSL...');
 
+        // Expand loop constructs before parsing
+        dslCode = this._expandLoops(dslCode);
+
+        console.log('[MusicCompiler] Expanded DSL length:', dslCode.length);
+
         // Parse tempo
         const tempoMatch = dslCode.match(/tempo\((\d+)\)/);
         const tempo = tempoMatch ? parseInt(tempoMatch[1]) : 120;
 
-        // Parse tracks
-        const trackMatches = dslCode.match(/track\("([^"]+)"\)\s*{([^}]+)}/g);
+        // Parse tracks - use a helper function to handle brace matching
+        const trackMatches = this._extractTracks(dslCode);
 
         if (!trackMatches) {
             throw new Error('No tracks found in DSL');
@@ -75,35 +80,29 @@ class MusicCompiler {
                 continue;
             }
 
-            if (!trackTimes[trackId]) {
-                trackTimes[trackId] = 0;
-            }
-
-            // Parse notes
-            const noteMatches = trackMatch.match(/note\("([^"]+)",\s*([\d.]+),\s*([\d.]+)\)/g);
+            // Parse 4-parameter notes with absolute timing
+            const noteMatches = trackMatch.match(/note\("([^"]+)",\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g);
             if (noteMatches) {
                 noteMatches.forEach(noteMatch => {
-                    const [, note, duration, velocity] =
-                        noteMatch.match(/note\("([^"]+)",\s*([\d.]+),\s*([\d.]+)\)/);
+                    const [, note, start, duration, velocity] =
+                        noteMatch.match(/note\("([^"]+)",\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/);
 
                     this.scheduler.scheduleNote(
                         instrument,
                         note,
                         parseFloat(duration),
-                        trackTimes[trackId],
+                        parseFloat(start),
                         parseFloat(velocity)
                     );
-
-                    trackTimes[trackId] += parseFloat(duration);
                 });
             }
 
-            // Parse chord notation (if exists)
-            const chordMatches = trackMatch.match(/chord\(\[([^\]]+)\],\s*([\d.]+),\s*([\d.]+)\)/g);
+            // Parse 4-parameter chords with absolute timing
+            const chordMatches = trackMatch.match(/chord\(\[([^\]]+)\],\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g);
             if (chordMatches) {
                 chordMatches.forEach(chordMatch => {
-                    const [, notesStr, duration, velocity] =
-                        chordMatch.match(/chord\(\[([^\]]+)\],\s*([\d.]+),\s*([\d.]+)\)/);
+                    const [, notesStr, start, duration, velocity] =
+                        chordMatch.match(/chord\(\[([^\]]+)\],\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/);
 
                     const notes = notesStr.split(',').map(n => n.trim().replace(/"/g, ''));
 
@@ -111,11 +110,9 @@ class MusicCompiler {
                         instrument,
                         notes,
                         parseFloat(duration),
-                        trackTimes[trackId],
+                        parseFloat(start),
                         parseFloat(velocity)
                     );
-
-                    trackTimes[trackId] += parseFloat(duration);
                 });
             }
         }
@@ -191,9 +188,167 @@ class MusicCompiler {
                     );
                 });
             }
+
+            // Handle audio clips (vocal/audio tracks)
+            if (track.audio) {
+                track.audio.forEach(audioClip => {
+                    this.scheduler.scheduleAudioClip(
+                        audioClip.audio_data,
+                        audioClip.start,
+                        audioClip.duration,
+                        audioClip.volume || 1.0,
+                        track.id
+                    );
+                });
+            }
         });
 
         return { tempo, duration: this.scheduler.getTotalDuration() };
+    }
+
+    /**
+     * Extract track blocks from DSL with proper brace matching
+     */
+    _extractTracks(dslCode) {
+        const tracks = [];
+        const trackPattern = /track\("([^"]+)"\)\s*\{/g;
+        let match;
+
+        while ((match = trackPattern.exec(dslCode)) !== null) {
+            const trackStart = match.index;
+            const contentStart = trackPattern.lastIndex;
+
+            // Find the matching closing brace
+            let braceCount = 1;
+            let pos = contentStart;
+
+            while (pos < dslCode.length && braceCount > 0) {
+                if (dslCode[pos] === '{') braceCount++;
+                if (dslCode[pos] === '}') braceCount--;
+                pos++;
+            }
+
+            if (braceCount === 0) {
+                const trackBlock = dslCode.substring(trackStart, pos);
+                tracks.push(trackBlock);
+            }
+        }
+
+        return tracks.length > 0 ? tracks : null;
+    }
+
+    /**
+     * Expand loop constructs in DSL code
+     * Supports two syntaxes:
+     * 1. Simple repeat: loop(count) { note(...) }
+     * 2. Time-based: loop(startTime, endTime) { note(pitch, relativeStart, duration, velocity) }
+     */
+    _expandLoops(dslCode) {
+        let expandedCode = dslCode;
+        let maxIterations = 100;
+        let iteration = 0;
+
+        // Pattern for both simple and time-based loops
+        const loopPattern = /(?:loop|for|while)\s*\(\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)\s*\{([^}]*)\}/g;
+        let match;
+
+        while ((match = loopPattern.exec(expandedCode)) !== null && iteration < maxIterations) {
+            const fullMatch = match[0];
+            const param1 = parseFloat(match[1]);
+            const param2 = match[2] ? parseFloat(match[2]) : null;
+            const loopContent = match[3];
+
+            let expandedContent = '';
+
+            if (param2 === null) {
+                // Simple repeat: loop(N) - repeat N times
+                for (let i = 0; i < param1; i++) {
+                    expandedContent += loopContent;
+                }
+            } else {
+                // Time-based: loop(startTime, endTime)
+                const startTime = param1;
+                const endTime = param2;
+
+                // Parse notes and chords inside to get pattern duration
+                const notePattern = /note\("([^"]+)",\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g;
+                const chordPattern = /chord\(\[([^\]]+)\],\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g;
+
+                let noteMatches = [...loopContent.matchAll(notePattern)];
+                let chordMatches = [...loopContent.matchAll(chordPattern)];
+
+                if (noteMatches.length === 0 && chordMatches.length === 0) {
+                    // No notes or chords found, skip this loop
+                    expandedCode = expandedCode.replace(fullMatch, loopContent);
+                    loopPattern.lastIndex = 0;
+                    iteration++;
+                    continue;
+                }
+
+                // Find the pattern duration (max relativeStart + duration)
+                let patternDuration = 0;
+
+                noteMatches.forEach(noteMatch => {
+                    const relativeStart = parseFloat(noteMatch[2]);
+                    const duration = parseFloat(noteMatch[3]);
+                    patternDuration = Math.max(patternDuration, relativeStart + duration);
+                });
+
+                chordMatches.forEach(chordMatch => {
+                    const relativeStart = parseFloat(chordMatch[2]);
+                    const duration = parseFloat(chordMatch[3]);
+                    patternDuration = Math.max(patternDuration, relativeStart + duration);
+                });
+
+                // Generate repeated notes from startTime to endTime
+                const loopDuration = endTime - startTime;
+                const repetitions = Math.ceil(loopDuration / patternDuration);
+
+                for (let rep = 0; rep < repetitions; rep++) {
+                    const repStartTime = startTime + (rep * patternDuration);
+
+                    // Only add notes that fit within the loop range
+                    if (repStartTime >= endTime) break;
+
+                    // Expand notes
+                    noteMatches.forEach(noteMatch => {
+                        const pitch = noteMatch[1];
+                        const relativeStart = parseFloat(noteMatch[2]);
+                        const duration = parseFloat(noteMatch[3]);
+                        const velocity = parseFloat(noteMatch[4]);
+
+                        const absoluteStart = repStartTime + relativeStart;
+
+                        // Only include notes that start before endTime
+                        if (absoluteStart < endTime) {
+                            expandedContent += `  note("${pitch}", ${absoluteStart}, ${duration}, ${velocity})\n`;
+                        }
+                    });
+
+                    // Expand chords
+                    chordMatches.forEach(chordMatch => {
+                        const notes = chordMatch[1];
+                        const relativeStart = parseFloat(chordMatch[2]);
+                        const duration = parseFloat(chordMatch[3]);
+                        const velocity = parseFloat(chordMatch[4]);
+
+                        const absoluteStart = repStartTime + relativeStart;
+
+                        // Only include chords that start before endTime
+                        if (absoluteStart < endTime) {
+                            expandedContent += `  chord([${notes}], ${absoluteStart}, ${duration}, ${velocity})\n`;
+                        }
+                    });
+                }
+            }
+
+            // Replace the loop with expanded content
+            expandedCode = expandedCode.replace(fullMatch, expandedContent);
+            loopPattern.lastIndex = 0;
+            iteration++;
+        }
+
+        return expandedCode;
     }
 
     /**

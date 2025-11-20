@@ -22,11 +22,19 @@ class ChordEvent(BaseModel):
     start: float           # Start time in seconds
     duration: float        # Duration in seconds
 
+class AudioClip(BaseModel):
+    """Audio clip for vocal/audio tracks."""
+    audio_data: str        # Base64 encoded audio data (WAV)
+    start: float           # Start time in seconds
+    duration: float        # Duration in seconds
+    volume: float = 1.0    # Volume multiplier (0.0-1.0)
+
 class Track(BaseModel):
     id: str
     instrument: Optional[str] = None
     notes: Optional[List[Note]] = None
     samples: Optional[List[SampleEvent]] = None
+    audio: Optional[List[AudioClip]] = None    # Audio clips for vocal/audio tracks
     # Music theory metadata (from post-processing)
     metadata: Optional[Dict[str, Any]] = None      # key, tempo, grid_resolution, etc.
     harmony: Optional[List[ChordEvent]] = None     # Chord progression

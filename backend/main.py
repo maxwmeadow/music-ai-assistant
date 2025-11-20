@@ -202,9 +202,11 @@ def run(body: RunBody):
     print(f"Code provided: {body.code is not None}")
     print(f"IR provided: {body.ir is not None}")
 
+    # Allow both code and IR to be provided together
+    # This is needed for vocal tracks where we have DSL for notes and IR for audio
     provided = sum(1 for v in [body.code, body.ir] if v is not None)
-    if provided != 1:
-        raise HTTPException(status_code=400, detail="Provide exactly one of 'code' or 'ir'.")
+    if provided == 0:
+        raise HTTPException(status_code=400, detail="Provide at least one of 'code' or 'ir'.")
 
     runner_configured = bool(settings.runner_ingest_url or settings.runner_inbox_path)
     print(f"Runner configured: {runner_configured}")
@@ -213,8 +215,15 @@ def run(body: RunBody):
         if runner_configured:
             print("FORWARDING TO RUNNER")
 
-            if body.code is not None:
-                print("Processing DSL code")
+            # If both code and IR are provided, merge them
+            if body.code is not None and body.ir is not None:
+                print("Processing DSL code + IR data")
+                ir_data = require_ir(body.ir).model_dump()
+                # Add DSL passthrough to IR
+                ir_data["__dsl_passthrough"] = body.code
+                payload = {"ir": ir_data}
+            elif body.code is not None:
+                print("Processing DSL code only")
                 payload = {
                     "ir": {
                         "metadata": {"tempo": 120},
@@ -223,7 +232,7 @@ def run(body: RunBody):
                     }
                 }
             else:
-                print("Processing IR data")
+                print("Processing IR data only")
                 payload = {"ir": require_ir(body.ir).model_dump()}
 
             print(f"Payload to runner: {payload}")

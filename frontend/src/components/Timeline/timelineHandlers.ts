@@ -127,7 +127,39 @@ export function handlePasteNotes(
 }
 
 /**
- * Handle note drag movement
+ * Calculate new note position during drag (without applying to DSL)
+ * Used for live visual feedback
+ */
+export function calculateNoteDrag(
+  deltaX: number,
+  zoom: number,
+  initialStart: number,
+  snapValue: number,
+  snapEnabled: boolean
+): number {
+  const deltaBeats = deltaX / zoom;
+  const rawStart = initialStart + deltaBeats;
+  return snapToGrid(Math.max(0, rawStart), snapValue, snapEnabled);
+}
+
+/**
+ * Calculate new note duration during resize (without applying to DSL)
+ * Used for live visual feedback
+ */
+export function calculateNoteResize(
+  deltaX: number,
+  zoom: number,
+  initialDuration: number,
+  snapValue: number,
+  snapEnabled: boolean
+): number {
+  const deltaBeats = deltaX / zoom;
+  const rawDuration = initialDuration + deltaBeats;
+  return Math.max(snapValue, snapToGrid(rawDuration, snapValue, snapEnabled));
+}
+
+/**
+ * Handle note drag movement (final apply to DSL)
  */
 export function handleNoteDrag(
   deltaX: number,
@@ -147,6 +179,42 @@ export function handleNoteDrag(
   notes[draggingNote.noteIndex].start = newStart;
 
   const newCode = updateDSLWithNewNotes(dslCode, draggingNote.trackId, notes, tempo);
+  onCodeChange(newCode);
+}
+
+/**
+ * Handle multi-selection drag movement (final apply to DSL)
+ */
+export function handleMultiNoteDrag(
+  deltaBeats: number,
+  selectedNotes: Array<{ trackId: string; noteIndex: number }>,
+  dslCode: string,
+  tempo: number,
+  snapValue: number,
+  snapEnabled: boolean,
+  onCodeChange: (code: string) => void
+): void {
+  // Group notes by track
+  const byTrack = new Map<string, number[]>();
+  selectedNotes.forEach(({ trackId, noteIndex }) => {
+    if (!byTrack.has(trackId)) {
+      byTrack.set(trackId, []);
+    }
+    byTrack.get(trackId)!.push(noteIndex);
+  });
+
+  let newCode = dslCode;
+
+  // Update each track
+  byTrack.forEach((indices, trackId) => {
+    const notes = parseNotesFromDSL(newCode, trackId, tempo);
+    indices.forEach(idx => {
+      const rawStart = notes[idx].start + deltaBeats;
+      notes[idx].start = snapToGrid(Math.max(0, rawStart), snapValue, snapEnabled);
+    });
+    newCode = updateDSLWithNewNotes(newCode, trackId, notes, tempo);
+  });
+
   onCodeChange(newCode);
 }
 
