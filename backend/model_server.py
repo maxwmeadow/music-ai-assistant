@@ -84,28 +84,56 @@ class ModelServer:
     """
 
     def __init__(self):
-        """Initialize model server and optionally load trained model"""
+        """Initialize model server with optional lazy loading"""
+        import os
+
         print("[ModelServer.__init__] ========================================")
         print("[ModelServer.__init__] Initializing ModelServer")
 
-        checkpoint_path = Path("hum2melody/checkpoints/combined_hum2melody_full.pth")
-        print(f"[ModelServer.__init__]   Checkpoint path: {checkpoint_path}")
-        print(f"[ModelServer.__init__]   Checkpoint path (absolute): {checkpoint_path.absolute()}")
-        print(f"[ModelServer.__init__]   Checkpoint exists: {checkpoint_path.exists()}")
+        # Store as instance variable for health endpoint
+        self.checkpoint_path = Path("hum2melody/checkpoints/combined_hum2melody_full.pth")
+        self._model_loading_attempted = False
+        self._beatbox_loading_attempted = False
+
+        # Check if lazy loading is enabled
+        self.lazy_load = os.getenv("LAZY_LOAD_MODELS", "false").lower() == "true"
+        print(f"[ModelServer.__init__]   Lazy loading: {self.lazy_load}")
+
+        # Define scales for fallback
+        self.c_major_scale = [60, 62, 64, 65, 67, 69, 71, 72]
+        self.a_minor_scale = [57, 59, 60, 62, 64, 65, 67, 69]
+
+        if self.lazy_load:
+            print("[ModelServer.__init__] ⚡ Lazy loading enabled - models will load on first use")
+            self.predictor = None
+            self.beatbox_predictor = None
+        else:
+            print("[ModelServer.__init__] 🔄 Eager loading - loading models now...")
+            self._load_hum2melody_model()
+            self._load_beatbox2drums_model()
+
+        print("[ModelServer.__init__] ========================================")
+
+    def _load_hum2melody_model(self):
+        """Load the hum2melody model if not already loaded"""
+        if self.predictor is not None or self._model_loading_attempted:
+            return
+
+        self._model_loading_attempted = True
+        checkpoint_path = self.checkpoint_path
+
+        print("[ModelServer] ========================================")
+        print("[ModelServer] Loading Hum2Melody model...")
+        print(f"[ModelServer]   Checkpoint path: {checkpoint_path}")
+        print(f"[ModelServer]   Checkpoint exists: {checkpoint_path.exists()}")
 
         if checkpoint_path.exists():
             size_mb = checkpoint_path.stat().st_size / (1024 * 1024)
-            print(f"[ModelServer.__init__]   Checkpoint size: {size_mb:.1f} MB")
-
-        print(f"[ModelServer.__init__]   ChunkedHybridHum2Melody is None: {ChunkedHybridHum2Melody is None}")
-        print(f"[ModelServer.__init__]   Checkpoint exists: {checkpoint_path.exists()}")
+            print(f"[ModelServer]   Checkpoint size: {size_mb:.1f} MB")
 
         if ChunkedHybridHum2Melody is not None and checkpoint_path.exists():
-            print("[ModelServer.__init__] ✅ Both conditions met - attempting to load model")
             try:
-                print(f"[ModelServer.__init__]   Creating ChunkedHybridHum2Melody instance...")
-                print(f"[ModelServer.__init__]   Args: checkpoint={checkpoint_path}, device=cpu")
-
+                print(f"[ModelServer]   Creating ChunkedHybridHum2Melody instance...")
                 self.predictor = ChunkedHybridHum2Melody(
                     checkpoint_path=str(checkpoint_path),
                     device='cpu',
@@ -114,79 +142,65 @@ class ModelServer:
                     offset_high=0.30,
                     offset_low=0.10
                 )
-                print(f"[ModelServer.__init__]   ✅ Model loaded successfully!")
-                print(f"[ModelServer.__init__]   Predictor device: {self.predictor.device}")
+                print(f"[ModelServer]   ✅ Hum2Melody model loaded successfully!")
             except Exception as e:
-                print(f"[ModelServer.__init__]   ❌ Failed to load model: {e}")
-                print("[ModelServer.__init__]   Full traceback:")
+                print(f"[ModelServer]   ❌ Failed to load model: {e}")
                 traceback.print_exc()
                 self.predictor = None
         else:
-            print("[ModelServer.__init__] ❌ Conditions NOT met for loading model:")
             self.predictor = None
             if not checkpoint_path.exists():
-                print(f"[ModelServer.__init__]   ❌ No trained model found at {checkpoint_path}")
+                print(f"[ModelServer]   ❌ No trained model found at {checkpoint_path}")
             if ChunkedHybridHum2Melody is None:
-                print("[ModelServer.__init__]   ❌ ChunkedHybridHum2Melody not available (import failed)")
-            print("[ModelServer.__init__]   Using mock predictions")
+                print("[ModelServer]   ❌ ChunkedHybridHum2Melody not available")
 
-        # Define scales for fallback
-        self.c_major_scale = [60, 62, 64, 65, 67, 69, 71, 72]
-        self.a_minor_scale = [57, 59, 60, 62, 64, 65, 67, 69]
+        print("[ModelServer] ========================================")
 
-        print(f"[ModelServer.__init__] Final predictor status: {self.predictor is not None}")
+    def _load_beatbox2drums_model(self):
+        """Load the beatbox2drums model if not already loaded"""
+        if self.beatbox_predictor is not None or self._beatbox_loading_attempted:
+            return
 
-        # Initialize beatbox2drums pipeline
-        print("[ModelServer.__init__] ========================================")
-        print("[ModelServer.__init__] Initializing Beatbox2Drums Pipeline")
+        self._beatbox_loading_attempted = True
+
+        print("[ModelServer] ========================================")
+        print("[ModelServer] Loading Beatbox2Drums model...")
 
         onset_checkpoint_path = Path("beatbox2drums/checkpoints/onset_detector/best_onset_model.h5")
         classifier_checkpoint_path = Path("beatbox2drums/checkpoints/drum_classifier/best_model_multi_input.pth")
         feature_norm_path = Path("beatbox2drums/checkpoints/drum_classifier/feature_normalization.npz")
 
-        print(f"[ModelServer.__init__]   Onset checkpoint: {onset_checkpoint_path}")
-        print(f"[ModelServer.__init__]   Onset checkpoint exists: {onset_checkpoint_path.exists()}")
-        print(f"[ModelServer.__init__]   Classifier checkpoint: {classifier_checkpoint_path}")
-        print(f"[ModelServer.__init__]   Classifier checkpoint exists: {classifier_checkpoint_path.exists()}")
-        print(f"[ModelServer.__init__]   Feature norm path: {feature_norm_path}")
-        print(f"[ModelServer.__init__]   Feature norm exists: {feature_norm_path.exists()}")
-        print(f"[ModelServer.__init__]   Beatbox2DrumsPipeline is None: {Beatbox2DrumsPipeline is None}")
+        print(f"[ModelServer]   Onset checkpoint exists: {onset_checkpoint_path.exists()}")
+        print(f"[ModelServer]   Classifier checkpoint exists: {classifier_checkpoint_path.exists()}")
 
         if Beatbox2DrumsPipeline is not None and onset_checkpoint_path.exists() and classifier_checkpoint_path.exists():
-            print("[ModelServer.__init__] ✅ All conditions met - attempting to load beatbox2drums pipeline")
             try:
-                print(f"[ModelServer.__init__]   Creating Beatbox2DrumsPipeline instance with multi-input model...")
+                print(f"[ModelServer]   Creating Beatbox2DrumsPipeline instance...")
                 self.beatbox_predictor = Beatbox2DrumsPipeline(
                     onset_checkpoint_path=str(onset_checkpoint_path),
                     classifier_checkpoint_path=str(classifier_checkpoint_path),
                     onset_threshold=0.5,
-                    onset_peak_delta=0.05,  # 50ms NMS window
+                    onset_peak_delta=0.05,
                     classifier_confidence_threshold=0.3,
                     device='cpu',
-                    use_multi_input=True,  # Use new multi-input model with spectral features
+                    use_multi_input=True,
                     feature_norm_path=str(feature_norm_path) if feature_norm_path.exists() else None
                 )
-                print(f"[ModelServer.__init__]   ✅ Beatbox2Drums pipeline loaded successfully!")
-                print(f"[ModelServer.__init__]   Pipeline device: {self.beatbox_predictor.device}")
-                print(f"[ModelServer.__init__]   Multi-input mode: {self.beatbox_predictor.use_multi_input}")
+                print(f"[ModelServer]   ✅ Beatbox2Drums pipeline loaded successfully!")
             except Exception as e:
-                print(f"[ModelServer.__init__]   ❌ Failed to load beatbox2drums pipeline: {e}")
-                print("[ModelServer.__init__]   Full traceback:")
+                print(f"[ModelServer]   ❌ Failed to load beatbox2drums pipeline: {e}")
                 traceback.print_exc()
                 self.beatbox_predictor = None
         else:
-            print("[ModelServer.__init__] ❌ Conditions NOT met for loading beatbox2drums pipeline:")
             self.beatbox_predictor = None
             if not onset_checkpoint_path.exists():
-                print(f"[ModelServer.__init__]   ❌ Onset checkpoint not found at {onset_checkpoint_path}")
+                print(f"[ModelServer]   ❌ Onset checkpoint not found")
             if not classifier_checkpoint_path.exists():
-                print(f"[ModelServer.__init__]   ❌ Classifier checkpoint not found at {classifier_checkpoint_path}")
+                print(f"[ModelServer]   ❌ Classifier checkpoint not found")
             if Beatbox2DrumsPipeline is None:
-                print("[ModelServer.__init__]   ❌ Beatbox2DrumsPipeline not available (import failed)")
-            print("[ModelServer.__init__]   Using mock predictions for beatbox2drums")
+                print("[ModelServer]   ❌ Beatbox2DrumsPipeline not available")
 
-        print(f"[ModelServer.__init__] Final beatbox_predictor status: {self.beatbox_predictor is not None}")
-        print("[ModelServer.__init__] ========================================")
+        print("[ModelServer] ========================================")
 
     async def predict_melody(self, audio_features: Dict[str, Any]) -> Track:
         """
@@ -195,6 +209,12 @@ class ModelServer:
         """
         print("[ModelServer.predict_melody] ========================================")
         print(f"[ModelServer.predict_melody] Called with audio_features keys: {list(audio_features.keys())}")
+
+        # Lazy load model if needed
+        if self.lazy_load and self.predictor is None and not self._model_loading_attempted:
+            print("[ModelServer.predict_melody] ⚡ Lazy loading hum2melody model...")
+            self._load_hum2melody_model()
+
         print(f"[ModelServer.predict_melody] Predictor is None: {self.predictor is None}")
 
         # Handle invalid or missing inputs
@@ -282,6 +302,12 @@ class ModelServer:
         """
         print("[ModelServer.predict_drums] ========================================")
         print(f"[ModelServer.predict_drums] Called with audio_features keys: {list(audio_features.keys())}")
+
+        # Lazy load model if needed
+        if self.lazy_load and self.beatbox_predictor is None and not self._beatbox_loading_attempted:
+            print("[ModelServer.predict_drums] ⚡ Lazy loading beatbox2drums model...")
+            self._load_beatbox2drums_model()
+
         print(f"[ModelServer.predict_drums] Beatbox predictor is None: {self.beatbox_predictor is None}")
 
         # Handle invalid or missing inputs

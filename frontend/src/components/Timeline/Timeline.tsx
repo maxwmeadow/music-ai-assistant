@@ -1,15 +1,33 @@
 "use client";
 
-import {useState, useRef, useEffect, JSX} from "react";
+import { useState, useRef, useEffect, JSX } from "react";
 import { ParsedTrack } from "@/lib/dslParser";
-
-interface TimelineNote {
-  pitch: number;
-  start: number;
-  duration: number;
-  velocity: number;
-  isChord?: boolean;
-}
+import {
+  getTempoFromDSL,
+  beatsToSeconds,
+  secondsToBeats,
+  getGridSubdivision,
+  pitchToNote,
+  parseNotesFromDSL
+} from "./timelineHelpers";
+import {
+  handleDeleteNotes,
+  handleCopyNotes,
+  handlePasteNotes,
+  handleNoteDrag,
+  handleNoteResize,
+  handleMultiNoteDrag,
+  calculateNoteDrag,
+  calculateNoteResize
+} from "./timelineHandlers";
+import {
+  TimelineNote,
+  SelectedNote,
+  DraggingNote,
+  ResizingNote,
+  CopiedNotes,
+  SNAP_OPTIONS
+} from "./types";
 
 interface TimelineProps {
   tracks: ParsedTrack[];
@@ -17,154 +35,112 @@ interface TimelineProps {
   onCodeChange: (newCode: string) => void;
   isPlaying: boolean;
   currentTime: number;
+  onSeek?: (time: number) => void;
+  isLoading?: boolean;
+  loopEnabled?: boolean;
+  loopStart?: number;
+  loopEnd?: number;
+  onLoopChange?: (start: number, end: number) => void;
 }
 
-export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime }: TimelineProps) {
+export function Timeline({
+  tracks,
+  dslCode,
+  onCodeChange,
+  isPlaying,
+  currentTime,
+  onSeek,
+  isLoading = false,
+  loopEnabled = false,
+  loopStart = 0,
+  loopEnd = 4,
+  onLoopChange
+}: TimelineProps) {
   const [zoom, setZoom] = useState(50);
-  const [selectedNote, setSelectedNote] = useState<{trackId: string, noteIndex: number} | null>(null);
-  const [draggingNote, setDraggingNote] = useState<{trackId: string, noteIndex: number, startX: number, initialStart: number} | null>(null);
-  const [resizingNote, setResizingNote] = useState<{trackId: string, noteIndex: number, startX: number, initialDuration: number} | null>(null);
+  const [selectedNotes, setSelectedNotes] = useState<SelectedNote[]>([]);
+  const [lastSelectedNote, setLastSelectedNote] = useState<SelectedNote | null>(null); // For shift-select range
+  const [draggingNote, setDraggingNote] = useState<DraggingNote | null>(null);
+  const [resizingNote, setResizingNote] = useState<ResizingNote | null>(null);
+  const [isDraggingPlayhead, setIsDraggingPlayhead] = useState(false);
+  const [isDraggingLoop, setIsDraggingLoop] = useState(false);
+  const [loopDragStartX, setLoopDragStartX] = useState(0);
+  const [loopDragStartTime, setLoopDragStartTime] = useState(0);
   const timelineRef = useRef<HTMLDivElement>(null);
+  const loopBarRef = useRef<HTMLDivElement>(null);
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [snapValue, setSnapValue] = useState(0.25);
+  const [copiedNotes, setCopiedNotes] = useState<CopiedNotes | null>(null);
 
-  const getTempoFromDSL = (): number => {
-    const tempoMatch = dslCode.match(/tempo\((\d+)\)/);
-    return tempoMatch ? parseInt(tempoMatch[1]) : 120;
-  };
+  const tempo = getTempoFromDSL(dslCode);
 
-  const beatsToSeconds = (beats: number): number => {
-    const tempo = getTempoFromDSL();
-    return (beats * 60) / tempo;
-  };
+  // Clear visual state only AFTER DSL has been updated with the correct position
+  useEffect(() => {
+    if (draggingNote?.committed && draggingNote.currentStart !== undefined) {
+      // Verify the DSL has actually been updated with the new position
+      const notes = parseNotesFromDSL(dslCode, draggingNote.trackId, tempo);
+      const note = notes[draggingNote.noteIndex];
 
-  const secondsToBeats = (seconds: number): number => {
-    const tempo = getTempoFromDSL();
-    return (seconds * tempo) / 60;
-  };
-
-  const snapToGrid = (beats: number): number => {
-    if (!snapEnabled) return beats;
-    return Math.round(beats / snapValue) * snapValue;
-  };
-
-  /**
-   * Determines grid subdivision level based on zoom
-   * Returns: { subdivision: number, showSubdivisions: boolean }
-   */
-  const getGridSubdivision = (zoom: number): { subdivision: number, showSubdivisions: boolean, showSixteenths: boolean } => {
-    // zoom is pixels per beat
-
-    if (zoom < 60) {
-      // Very zoomed out - only show beats (quarters)
-      return { subdivision: 1, showSubdivisions: false, showSixteenths: false };
-    } else if (zoom < 120) {
-      // Medium zoom - show eighths
-      return { subdivision: 0.5, showSubdivisions: true, showSixteenths: false };
-    } else {
-      // Very zoomed in - show sixteenths
-      return { subdivision: 0.25, showSubdivisions: true, showSixteenths: true };
-    }
-  };
-
-  const SNAP_OPTIONS = [
-    { label: '1/4 (Whole)', value: 4 },
-    { label: '1/2 (Half)', value: 2 },
-    { label: '1 (Quarter)', value: 1 },
-    { label: '1/2 (8th)', value: 0.5 },
-    { label: '1/4 (16th)', value: 0.25 },
-    { label: '1/8 (32nd)', value: 0.125 },
-  ];
-
-  const parseNotesFromDSL = (trackId: string): TimelineNote[] => {
-    const trackMatch = dslCode.match(new RegExp(`track\\("${trackId}"\\)\\s*{([^}]+)}`, 's'));
-    if (!trackMatch) return [];
-
-    const trackContent = trackMatch[1];
-    const notes: TimelineNote[] = [];
-
-    // Parse regular notes
-    const noteMatches = trackContent.matchAll(/note\("([^"]+)",\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g);
-    for (const match of noteMatches) {
-      const [, noteName, start, duration, velocity] = match;
-      const pitch = noteToPitch(noteName);
-
-      notes.push({
-        pitch,
-        start: secondsToBeats(parseFloat(start)),  // Convert to beats
-        duration: secondsToBeats(parseFloat(duration)),  // Convert to beats
-        velocity: parseFloat(velocity)
-      });
-    }
-
-    // Parse chords
-    const chordMatches = trackContent.matchAll(/chord\(\[([^\]]+)\],\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g);
-    for (const match of chordMatches) {
-      const [, notesStr, start, duration, velocity] = match;
-      const chordNotes = notesStr.split(',').map(n => n.trim().replace(/"/g, ''));
-      const rootPitch = noteToPitch(chordNotes[0]);
-
-      notes.push({
-        pitch: rootPitch,
-        start: secondsToBeats(parseFloat(start)),  // Convert to beats
-        duration: secondsToBeats(parseFloat(duration)),  // Convert to beats
-        velocity: parseFloat(velocity),
-        isChord: true
-      });
-    }
-
-    return notes.sort((a, b) => a.start - b.start);
-  };
-
-  const noteToPitch = (noteName: string): number => {
-    const noteMap: Record<string, number> = {
-      'C': 0, 'C#': 1, 'D': 2, 'D#': 3, 'E': 4, 'F': 5,
-      'F#': 6, 'G': 7, 'G#': 8, 'A': 9, 'A#': 10, 'B': 11
-    };
-    const match = noteName.match(/([A-G]#?)(\d+)/);
-    if (!match) return 60;
-    const [, note, octave] = match;
-    return (parseInt(octave) + 1) * 12 + noteMap[note];
-  };
-
-  const pitchToNote = (pitch: number): string => {
-    const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-    const octave = Math.floor(pitch / 12) - 1;
-    const note = notes[pitch % 12];
-    return `${note}${octave}`;
-  };
-
-  const updateDSLWithNewNotes = (trackId: string, updatedNotes: TimelineNote[]) => {
-    const trackMatch = dslCode.match(new RegExp(`(track\\("${trackId}"\\)\\s*{)([^}]+)(})`, 's'));
-    if (!trackMatch) return;
-
-    const [fullMatch, opening, , closing] = trackMatch;
-
-    const instrumentMatch = trackMatch[2].match(/instrument\("([^"]+)"\)/);
-    const instrumentLine = instrumentMatch ? `  instrument("${instrumentMatch[1]}")\n` : '';
-
-    // Generate new note lines, converting beats back to seconds
-    const noteLines = updatedNotes.map(note => {
-      const noteName = pitchToNote(note.pitch);
-      const startSeconds = beatsToSeconds(note.start);
-      const durationSeconds = beatsToSeconds(note.duration);
-
-      if (note.isChord) {
-        return `  chord(["${noteName}"], ${startSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${note.velocity.toFixed(1)})`;
+      // Only clear visual state if the DSL matches our expected position (within tolerance)
+      if (note && Math.abs(note.start - draggingNote.currentStart) < 0.01) {
+        requestAnimationFrame(() => {
+          setDraggingNote(null);
+        });
       }
-      return `  note("${noteName}", ${startSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${note.velocity.toFixed(1)})`;
-    }).join('\n');
+    } else if (resizingNote?.committed && resizingNote.currentDuration !== undefined) {
+      // Verify the DSL has actually been updated with the new duration
+      const notes = parseNotesFromDSL(dslCode, resizingNote.trackId, tempo);
+      const note = notes[resizingNote.noteIndex];
 
-    const newTrackContent = `${opening}\n${instrumentLine}${noteLines}\n${closing}`;
-    const newDSL = dslCode.replace(fullMatch, newTrackContent);
-
-    onCodeChange(newDSL);
-  };
-
+      // Only clear visual state if the DSL matches our expected duration (within tolerance)
+      if (note && Math.abs(note.duration - resizingNote.currentDuration) < 0.01) {
+        requestAnimationFrame(() => {
+          setResizingNote(null);
+        });
+      }
+    }
+  }, [dslCode, draggingNote, resizingNote]);
 
   const handleNoteMouseDown = (e: React.MouseEvent, trackId: string, noteIndex: number, isResize: boolean) => {
     e.stopPropagation();
-    const notes = parseNotesFromDSL(trackId);
+    const notes = parseNotesFromDSL(dslCode, trackId, tempo);
+    const note = notes[noteIndex];
+
+    // Check if this is a loop-generated note (read-only)
+    if (note?.isFromLoop) {
+      alert('This note is from a loop block and cannot be edited in the timeline.\n\nTo edit it, modify the loop in the code editor.');
+      return;
+    }
+
+    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+    const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
+    const shift = e.shiftKey;
+    const clickedNote = { trackId, noteIndex };
+    const isAlreadySelected = selectedNotes.some(n => n.trackId === trackId && n.noteIndex === noteIndex);
+
+    // Handle selection BEFORE setting drag state
+    if (ctrlOrCmd) {
+      // Ctrl/Cmd+Click: Toggle selection
+      if (isAlreadySelected) {
+        setSelectedNotes(selectedNotes.filter(n => !(n.trackId === trackId && n.noteIndex === noteIndex)));
+      } else {
+        setSelectedNotes([...selectedNotes, clickedNote]);
+      }
+      setLastSelectedNote(clickedNote);
+    } else if (shift && lastSelectedNote && lastSelectedNote.trackId === trackId) {
+      // Shift+Click: Select range (only within same track)
+      const start = Math.min(lastSelectedNote.noteIndex, noteIndex);
+      const end = Math.max(lastSelectedNote.noteIndex, noteIndex);
+      const rangeSelection: SelectedNote[] = [];
+      for (let i = start; i <= end; i++) {
+        rangeSelection.push({ trackId, noteIndex: i });
+      }
+      setSelectedNotes(rangeSelection);
+    } else if (!isAlreadySelected) {
+      // Regular click on unselected note: Select single note
+      setSelectedNotes([clickedNote]);
+      setLastSelectedNote(clickedNote);
+    }
+    // If clicking an already-selected note without modifiers, keep selection (for multi-drag)
 
     if (isResize) {
       setResizingNote({
@@ -174,54 +150,137 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
         initialDuration: notes[noteIndex].duration
       });
     } else {
+      // Store all selected notes for multi-drag
       setDraggingNote({
         trackId,
         noteIndex,
         startX: e.clientX,
-        initialStart: notes[noteIndex].start
+        initialStart: notes[noteIndex].start,
+        selectedNotes: isAlreadySelected && selectedNotes.length > 1 ? selectedNotes : undefined
       });
     }
-    setSelectedNote({ trackId, noteIndex });
   };
 
   const handleMouseMove = (e: MouseEvent) => {
-    if (draggingNote) {
+    if (draggingNote && !draggingNote.committed) {
+      // Only update if not committed (still actively dragging)
       const deltaX = e.clientX - draggingNote.startX;
-      const deltaBeats = deltaX / zoom;
-      const rawStart = draggingNote.initialStart + deltaBeats;
-      const newStart = snapToGrid(Math.max(0, rawStart));
+      const newStart = calculateNoteDrag(deltaX, zoom, draggingNote.initialStart, snapValue, snapEnabled);
 
-      const notes = parseNotesFromDSL(draggingNote.trackId);
-      notes[draggingNote.noteIndex].start = newStart;
-
-      updateDSLWithNewNotes(draggingNote.trackId, notes);
-    } else if (resizingNote) {
+      setDraggingNote({
+        ...draggingNote,
+        currentStart: newStart
+      });
+    } else if (resizingNote && !resizingNote.committed) {
+      // Only update if not committed (still actively resizing)
       const deltaX = e.clientX - resizingNote.startX;
-      const deltaBeats = deltaX / zoom;
-      const rawDuration = resizingNote.initialDuration + deltaBeats;
-      const newDuration = Math.max(snapValue, snapToGrid(rawDuration));
+      const newDuration = calculateNoteResize(deltaX, zoom, resizingNote.initialDuration, snapValue, snapEnabled);
 
-      const notes = parseNotesFromDSL(resizingNote.trackId);
-      notes[resizingNote.noteIndex].duration = newDuration;
-
-      updateDSLWithNewNotes(resizingNote.trackId, notes);
+      setResizingNote({
+        ...resizingNote,
+        currentDuration: newDuration
+      });
     }
   };
 
   const handleMouseUp = () => {
-    setDraggingNote(null);
-    setResizingNote(null);
+    // Mark as committed (stops mouse updates but keeps visual state until DSL updates)
+    if (draggingNote && draggingNote.currentStart !== undefined) {
+      const deltaBeats = draggingNote.currentStart - draggingNote.initialStart;
+
+      // Mark as committed to stop further mouse updates
+      setDraggingNote({
+        ...draggingNote,
+        committed: true
+      });
+
+      // Apply DSL changes (visual state will be cleared by useEffect when dslCode updates)
+      if (draggingNote.selectedNotes && draggingNote.selectedNotes.length > 1) {
+        handleMultiNoteDrag(deltaBeats, draggingNote.selectedNotes, dslCode, tempo, snapValue, snapEnabled, onCodeChange);
+      } else {
+        handleNoteDrag(deltaBeats * zoom, zoom, draggingNote, dslCode, tempo, snapValue, snapEnabled, onCodeChange);
+      }
+    } else if (resizingNote && resizingNote.currentDuration !== undefined) {
+      const deltaBeats = resizingNote.currentDuration - resizingNote.initialDuration;
+
+      // Mark as committed to stop further mouse updates
+      setResizingNote({
+        ...resizingNote,
+        committed: true
+      });
+
+      // Apply DSL changes (visual state will be cleared by useEffect when dslCode updates)
+      handleNoteResize(deltaBeats * zoom, zoom, resizingNote, dslCode, tempo, snapValue, snapEnabled, onCodeChange);
+    }
   };
 
-  const handleDeleteNote = () => {
-    if (!selectedNote) return;
+  const handleTimelineClick = (e: React.MouseEvent) => {
+    if (isLoading) return;
+    if (draggingNote || resizingNote) return;
+    if (!onSeek || !timelineRef.current) return;
 
-    const notes = parseNotesFromDSL(selectedNote.trackId);
-    notes.splice(selectedNote.noteIndex, 1);
-    updateDSLWithNewNotes(selectedNote.trackId, notes);
-    setSelectedNote(null);
+    const rect = timelineRef.current.getBoundingClientRect();
+    const clickX = e.clientX - rect.left + timelineRef.current.scrollLeft;
+    const clickedBeats = clickX / zoom;
+    const clickedTime = beatsToSeconds(clickedBeats, tempo);
+
+    onSeek(Math.max(0, clickedTime));
+    setIsDraggingPlayhead(true);
+    setSelectedNotes([]);
   };
 
+  const handlePlayheadDrag = (e: MouseEvent) => {
+    if (!isDraggingPlayhead || !onSeek || !timelineRef.current) return;
+
+    const rect = timelineRef.current.getBoundingClientRect();
+    const dragX = e.clientX - rect.left + timelineRef.current.scrollLeft;
+    const draggedBeats = dragX / zoom;
+    const draggedTime = beatsToSeconds(draggedBeats, tempo);
+
+    onSeek(Math.max(0, draggedTime));
+  };
+
+  const handlePlayheadDragEnd = () => {
+    setIsDraggingPlayhead(false);
+  };
+
+  // Loop region drag handlers
+  const handleLoopBarMouseDown = (e: React.MouseEvent) => {
+    if (!onLoopChange || !loopBarRef.current) return;
+    e.stopPropagation();
+
+    const rect = loopBarRef.current.getBoundingClientRect();
+    // Loop bar is inside scrolling content, so rect.left already accounts for scroll
+    const clickX = e.clientX - rect.left;
+    const clickedBeats = clickX / zoom;
+    const clickedTime = beatsToSeconds(clickedBeats, tempo);
+
+    setLoopDragStartX(clickX);
+    setLoopDragStartTime(clickedTime);
+    setIsDraggingLoop(true);
+    onLoopChange(clickedTime, clickedTime);
+  };
+
+  const handleLoopDrag = (e: MouseEvent) => {
+    if (!isDraggingLoop || !onLoopChange || !loopBarRef.current || !timelineRef.current) return;
+
+    const rect = loopBarRef.current.getBoundingClientRect();
+    // Loop bar is inside scrolling content, so rect.left already accounts for scroll
+    const currentX = e.clientX - rect.left;
+    const currentBeats = currentX / zoom;
+    const currentTime = beatsToSeconds(currentBeats, tempo);
+
+    const start = Math.min(loopDragStartTime, currentTime);
+    const end = Math.max(loopDragStartTime, currentTime);
+
+    onLoopChange(Math.max(0, start), Math.max(0, end));
+  };
+
+  const handleLoopDragEnd = () => {
+    setIsDraggingLoop(false);
+  };
+
+  // Mouse event listeners
   useEffect(() => {
     if (draggingNote || resizingNote) {
       window.addEventListener('mousemove', handleMouseMove);
@@ -233,234 +292,344 @@ export function Timeline({ tracks, dslCode, onCodeChange, isPlaying, currentTime
     }
   }, [draggingNote, resizingNote]);
 
+  useEffect(() => {
+    if (isDraggingPlayhead) {
+      window.addEventListener('mousemove', handlePlayheadDrag);
+      window.addEventListener('mouseup', handlePlayheadDragEnd);
+      return () => {
+        window.removeEventListener('mousemove', handlePlayheadDrag);
+        window.removeEventListener('mouseup', handlePlayheadDragEnd);
+      };
+    }
+  }, [isDraggingPlayhead, zoom, onSeek]);
+
+  useEffect(() => {
+    if (isDraggingLoop) {
+      window.addEventListener('mousemove', handleLoopDrag);
+      window.addEventListener('mouseup', handleLoopDragEnd);
+      return () => {
+        window.removeEventListener('mousemove', handleLoopDrag);
+        window.removeEventListener('mouseup', handleLoopDragEnd);
+      };
+    }
+  }, [isDraggingLoop, zoom, onLoopChange]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        return;
+      }
+
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
+
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        handleDeleteNote();
+        e.preventDefault();
+        handleDeleteNotes(selectedNotes, dslCode, tempo, onCodeChange, setSelectedNotes);
+      }
+
+      if (ctrlOrCmd && e.key === 'c') {
+        e.preventDefault();
+        handleCopyNotes(selectedNotes, dslCode, tempo, setCopiedNotes);
+      }
+
+      if (ctrlOrCmd && e.key === 'v') {
+        e.preventDefault();
+        handlePasteNotes(copiedNotes, currentTime, dslCode, tempo, snapValue, snapEnabled, onCodeChange, setSelectedNotes);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedNote]);
+  }, [selectedNotes, copiedNotes, currentTime]);
+
+  // Auto-scroll to keep playhead visible (like DAWs)
+  useEffect(() => {
+    if (!timelineRef.current || !isPlaying) return;
+
+    const container = timelineRef.current;
+    const playheadPosition = secondsToBeats(currentTime, tempo) * zoom;
+    const viewportLeft = container.scrollLeft;
+    const viewportRight = viewportLeft + container.clientWidth;
+    const scrollMargin = 100; // Keep playhead this many pixels from edge
+
+    // Check if playhead is going off the right edge
+    if (playheadPosition > viewportRight - scrollMargin) {
+      // Scroll to keep playhead at first 1/4 of viewport (more content ahead visible)
+      container.scrollLeft = playheadPosition - container.clientWidth / 4;
+    }
+    // Check if playhead is going off the left edge (when looping back)
+    else if (playheadPosition < viewportLeft + scrollMargin) {
+      container.scrollLeft = Math.max(0, playheadPosition - container.clientWidth / 4);
+    }
+  }, [currentTime, isPlaying, zoom, tempo]);
 
   const maxDuration = tracks.reduce((max, track) => {
-    const notes = parseNotesFromDSL(track.id);
+    const notes = parseNotesFromDSL(dslCode, track.id, tempo);
     const trackDuration = notes.reduce((sum, note) => Math.max(sum, note.start + note.duration), 0);
     return Math.max(max, trackDuration);
   }, 10);
 
-  // Add padding to ensure all notes are visible and scrollable
-  const totalWidth = (maxDuration + 4) * zoom; // Add 4 beats of padding
+  const totalWidth = (maxDuration + 4) * zoom;
 
   return (
-      <div className="w-full h-full bg-gray-950 border border-white/10 rounded-xl overflow-hidden flex flex-col">
-        <div className="flex-none bg-gray-900 border-b border-white/10 p-4 flex items-center justify-between">
-          <h3 className="text-white font-semibold">Timeline Editor</h3>
-          <div className="flex items-center gap-4">
-            <div className="text-xs text-gray-400">
-              {selectedNote && "Press Delete to remove note"}
-            </div>
-
-            {/* Snap controls */}
-            <div className="flex items-center gap-2">
-              <button
-                  onClick={() => setSnapEnabled(!snapEnabled)}
-                  className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors ${
-                      snapEnabled
-                          ? 'bg-purple-600 text-white'
-                          : 'bg-white/10 text-gray-400'
-                  }`}
-              >
-                SNAP
-              </button>
-
-              <select
-                  value={snapValue}
-                  onChange={(e) => setSnapValue(Number(e.target.value))}
-                  disabled={!snapEnabled}
-                  className="bg-white/10 text-white text-xs rounded-lg px-2 py-1 border border-white/20 disabled:opacity-50"
-              >
-                {SNAP_OPTIONS.map(opt => (
-                    <option key={opt.value} value={opt.value} className="bg-gray-900">
-                      {opt.label}
-                    </option>
-                ))}
-              </select>
-            </div>
-
-            <label className="text-sm text-gray-400">Zoom:</label>
-            <input
-                type="range"
-                min="20"
-                max="200"
-                value={zoom}
-                onChange={(e) => setZoom(Number(e.target.value))}
-                className="w-32"
-            />
+    <div className="w-full h-full bg-gray-950 border border-white/10 rounded-xl overflow-hidden flex flex-col relative">
+      {/* Loading overlay */}
+      {isLoading && (
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="bg-gray-900 border border-white/20 rounded-lg p-6 flex flex-col items-center gap-3">
+            <div className="w-12 h-12 border-4 border-purple-600 border-t-transparent rounded-full animate-spin"></div>
+            <p className="text-white font-medium">Loading audio...</p>
+            <p className="text-xs text-gray-400">Preparing samples and instruments</p>
           </div>
         </div>
+      )}
 
-        {/* Time ruler and track rows container */}
-        <div className="flex flex-1 overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-gray-900 [&::-webkit-scrollbar-thumb]:bg-gray-700 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border [&::-webkit-scrollbar-thumb]:border-gray-800 hover:[&::-webkit-scrollbar-thumb]:bg-gray-600">
-          {/* Fixed track labels column */}
-          <div className="flex-shrink-0">
-            <div className="w-48 h-8 bg-gray-900 border-r border-white/10"></div>
-            {tracks.map((track) => (
-              <div key={track.id} className="w-48 h-20 bg-gray-900 border-r border-white/10 border-b border-white/5 p-4">
-                <div className="text-white font-medium">{track.id}</div>
-                <div className="text-xs text-gray-500">{track.instrument?.split('/').pop()}</div>
-              </div>
-            ))}
+      <div className="flex-none bg-gray-900 border-b border-white/10 p-4 flex items-center justify-between">
+        <h3 className="text-white font-semibold">Timeline Editor</h3>
+        <div className="flex items-center gap-4">
+          <div className="text-xs text-gray-400">
+            {selectedNotes.length > 0 && `Press Delete to remove ${selectedNotes.length} note${selectedNotes.length > 1 ? 's' : ''}`}
           </div>
 
-          {/* Scrollable timeline area */}
-          <div className="flex-1 overflow-x-auto overflow-y-hidden [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-gray-900 [&::-webkit-scrollbar-thumb]:bg-gray-700 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border [&::-webkit-scrollbar-thumb]:border-gray-800 hover:[&::-webkit-scrollbar-thumb]:bg-gray-600" ref={timelineRef}>
-            <div style={{ width: `${totalWidth}px`, minWidth: `${totalWidth}px` }}>
-              {/* Time ruler */}
-              <div className="relative h-8 bg-gray-900 border-b border-white/10">
-                {(() => {
-                  const {subdivision, showSubdivisions, showSixteenths} = getGridSubdivision(zoom);
-                  const totalBeats = Math.ceil(maxDuration);
-                  const markers: JSX.Element[] = [];
+          {/* Snap controls */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSnapEnabled(!snapEnabled)}
+              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors ${snapEnabled
+                ? 'bg-purple-600 text-white'
+                : 'bg-white/10 text-gray-400'
+                }`}
+            >
+              SNAP
+            </button>
 
-                  for (let beat = 0; beat <= totalBeats; beat += subdivision) {
-                    const bar = Math.floor(beat / 4) + 1;
-                    const beatInBar = (beat % 4);
-                    const isMeasureStart = beat % 4 === 0;
-                    const isBeatStart = beat % 1 === 0;
-                    const isEighthNote = beat % 0.5 === 0 && beat % 1 !== 0;
-                    const isSixteenthNote = beat % 0.25 === 0 && beat % 0.5 !== 0;
+            <select
+              value={snapValue}
+              onChange={(e) => setSnapValue(Number(e.target.value))}
+              disabled={!snapEnabled}
+              className="bg-white/10 text-white text-xs rounded-lg px-2 py-1 border border-white/20 disabled:opacity-50"
+            >
+              {SNAP_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value} className="bg-gray-900">
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
 
-                    let borderClass = '';
-                    let labelContent = null;
+          <label className="text-sm text-gray-400">Zoom:</label>
+          <input
+            type="range"
+            min="20"
+            max="200"
+            value={zoom}
+            onChange={(e) => setZoom(Number(e.target.value))}
+            className="w-32"
+          />
+        </div>
+      </div>
 
-                    if (isMeasureStart) {
-                      borderClass = 'border-l-2 border-gray-500';
-                      labelContent = (
-                        <span className="text-xs font-bold text-gray-200 absolute top-0.5 left-1">
-                          {bar}
-                        </span>
-                      );
-                    } else if (isBeatStart) {
-                      borderClass = 'border-l border-gray-600';
-                      labelContent = (
-                        <span className="text-xs text-gray-400 absolute top-0.5 left-1">
-                          {Math.floor(beatInBar) + 1}
-                        </span>
-                      );
-                    } else if (isEighthNote && showSubdivisions) {
-                      borderClass = 'border-l border-gray-700/50';
-                    } else if (isSixteenthNote && showSixteenths) {
-                      borderClass = 'border-l border-gray-800/30';
-                    }
+      {/* Time ruler and track rows container */}
+      <div className="flex flex-1 overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-gray-900 [&::-webkit-scrollbar-thumb]:bg-gray-700 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border [&::-webkit-scrollbar-thumb]:border-gray-800 hover:[&::-webkit-scrollbar-thumb]:bg-gray-600">
+        {/* Fixed track labels column */}
+        <div className="flex-shrink-0">
+          <div className="w-48 h-8 bg-gray-900 border-r border-white/10"></div>
+          {tracks.map((track) => (
+            <div key={track.id} className="w-48 h-20 bg-gray-900 border-r border-b border-white/5 p-2">
+              <div className="text-white font-medium text-sm">{track.id}</div>
+              <div className="text-xs text-gray-500">
+                {track.instrument?.split('/').pop()}
+              </div>
+            </div>
+          ))}
+        </div>
 
-                    markers.push(
-                      <div
-                        key={beat}
-                        className={`absolute top-0 h-full ${borderClass}`}
-                        style={{left: `${beat * zoom}px`}}
-                      >
-                        {labelContent}
-                      </div>
+        {/* Scrollable timeline area */}
+        <div
+          className={`flex-1 overflow-x-auto overflow-y-hidden [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-gray-900 [&::-webkit-scrollbar-thumb]:bg-gray-700 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border [&::-webkit-scrollbar-thumb]:border-gray-800 hover:[&::-webkit-scrollbar-thumb]:bg-gray-600 select-none ${isLoading ? 'cursor-not-allowed' : isDraggingPlayhead ? 'cursor-grabbing' : ''}`}
+          ref={timelineRef}
+          onMouseDown={handleTimelineClick}
+        >
+          <div className="relative" style={{ width: `${totalWidth}px`, minWidth: `${totalWidth}px` }}>
+            {/* Global playback cursor */}
+            <div
+              id="red-line"
+              className={`absolute top-0 bottom-0 w-[2px] bg-red-500 z-10 hover:bg-red-400 transition-colors ${isDraggingPlayhead ? 'cursor-grabbing bg-red-400' : 'cursor-grab'}`}
+              style={{ left: `${secondsToBeats(currentTime, tempo) * zoom}px` }}
+            />
+
+            {/* Loop Region Bar */}
+            {loopEnabled && (
+              <div
+                ref={loopBarRef}
+                className="relative h-6 bg-gray-800 border-b border-white/5 cursor-crosshair"
+                onMouseDown={handleLoopBarMouseDown}
+              >
+                {/* Loop region highlight */}
+                <div
+                  className="absolute top-0 bottom-0 bg-purple-600/30 border-l-2 border-r-2 border-purple-500"
+                  style={{
+                    left: `${secondsToBeats(loopStart, tempo) * zoom}px`,
+                    width: `${secondsToBeats(loopEnd - loopStart, tempo) * zoom}px`,
+                  }}
+                >
+                  <div className="absolute inset-0 flex items-center justify-center text-[10px] text-white font-semibold">
+                    LOOP
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Time ruler */}
+            <div className="relative h-8 bg-gray-900 border-b border-white/10">
+              {(() => {
+                const { subdivision } = getGridSubdivision(zoom, snapValue, snapEnabled);
+                const totalBeats = Math.ceil(maxDuration);
+                const markers: JSX.Element[] = [];
+
+                for (let beat = 0; beat <= totalBeats; beat += subdivision) {
+                  const roundedBeat = Math.round(beat / subdivision) * subdivision;
+                  const bar = Math.floor(roundedBeat / 4) + 1;
+                  const beatInBar = (roundedBeat % 4);
+                  const isMeasureStart = Math.abs(roundedBeat % 4) < 0.001;
+                  const isBeatStart = Math.abs(roundedBeat % 1) < 0.001;
+
+                  let borderClass = '';
+                  let labelContent = null;
+
+                  if (isMeasureStart) {
+                    borderClass = 'border-l-2 border-gray-500';
+                    labelContent = (
+                      <span className="text-xs font-bold text-gray-200 absolute top-0.5 left-1">
+                        {bar}
+                      </span>
                     );
+                  } else if (isBeatStart && subdivision < 1) {
+                    borderClass = 'border-l border-gray-600';
+                    labelContent = (
+                      <span className="text-xs text-gray-400 absolute top-0.5 left-1">
+                        {Math.floor(beatInBar) + 1}
+                      </span>
+                    );
+                  } else {
+                    borderClass = 'border-l border-gray-700/50';
                   }
 
-                  return markers;
-                })()}
+                  markers.push(
+                    <div
+                      key={beat}
+                      className={`absolute top-0 h-full ${borderClass}`}
+                      style={{ left: `${beat * zoom}px` }}
+                    >
+                      {labelContent}
+                    </div>
+                  );
+                }
 
-                {isPlaying && (
-                  <div
-                    className="absolute top-0 w-0.5 h-full bg-red-500 z-10"
-                    style={{left: `${secondsToBeats(currentTime) * zoom}px`}}
-                  />
-                )}
-              </div>
+                return markers;
+              })()}
+            </div>
 
-              {/* Track timelines */}
-              {tracks.map((track) => {
-                const notes = parseNotesFromDSL(track.id);
-                return (
-                  <div key={track.id} className="relative h-20 bg-gray-950 border-b border-white/5">
-                    {/* Grid lines */}
-                    {(() => {
-                      const { subdivision, showSubdivisions, showSixteenths } = getGridSubdivision(zoom);
-                      const totalBeats = Math.ceil(maxDuration);
-                      const gridLines: JSX.Element[] = [];
+            {/* Track timelines */}
+            {tracks.map((track) => {
+              const notes = parseNotesFromDSL(dslCode, track.id, tempo);
 
-                      for (let beat = 0; beat <= totalBeats; beat += subdivision) {
-                        const isMeasureStart = beat % 4 === 0;
-                        const isBeatStart = beat % 1 === 0;
-                        const isEighthNote = beat % 0.5 === 0 && beat % 1 !== 0;
+              return (
+                <div key={track.id} className="relative h-20 bg-gray-950 border-b border-white/5">
+                  {/* Grid lines */}
+                  {(() => {
+                    const { subdivision } = getGridSubdivision(zoom, snapValue, snapEnabled);
+                    const totalBeats = Math.ceil(maxDuration);
+                    const gridLines: JSX.Element[] = [];
 
-                        let borderClass = '';
+                    for (let beat = 0; beat <= totalBeats; beat += subdivision) {
+                      const roundedBeat = Math.round(beat / subdivision) * subdivision;
+                      const isMeasureStart = Math.abs(roundedBeat % 4) < 0.001;
+                      const isBeatStart = Math.abs(roundedBeat % 1) < 0.001;
 
-                        if (isMeasureStart) {
-                          borderClass = 'border-l border-gray-700';
-                        } else if (isBeatStart) {
-                          borderClass = 'border-l border-gray-800/70';
-                        } else if (isEighthNote && showSubdivisions) {
-                          borderClass = 'border-l border-gray-800/40';
-                        } else if (showSixteenths) {
-                          borderClass = 'border-l border-gray-800/20';
-                        }
+                      let borderClass = '';
 
-                        gridLines.push(
-                          <div
-                            key={beat}
-                            className={`absolute top-0 h-full ${borderClass}`}
-                            style={{ left: `${beat * zoom}px` }}
-                          />
-                        );
+                      if (isMeasureStart) {
+                        borderClass = 'border-l border-gray-700';
+                      } else if (isBeatStart && subdivision < 1) {
+                        borderClass = 'border-l border-gray-800/70';
+                      } else {
+                        borderClass = 'border-l border-gray-800/40';
                       }
 
-                      return gridLines;
-                    })()}
+                      gridLines.push(
+                        <div
+                          key={beat}
+                          className={`absolute top-0 h-full ${borderClass}`}
+                          style={{ left: `${beat * zoom}px` }}
+                        />
+                      );
+                    }
 
-                    {/* Notes */}
-                    {notes.map((note, idx) => (
-                      <div
-                        key={idx}
-                        className={`absolute top-2 bottom-2 ${
-                          note.isChord
+                    return gridLines;
+                  })()}
+
+                  {/* Notes */}
+                  {notes.map((note, idx) => (
+                    <div
+                      key={idx}
+                      className={`absolute top-2 bottom-2 ${
+                        note.isFromLoop
+                          ? 'bg-gray-600 opacity-50' // Loop notes: gray and semi-transparent
+                          : note.isChord
                             ? 'bg-blue-600 hover:bg-blue-500'
                             : 'bg-purple-600 hover:bg-purple-500'
-                        } rounded transition-colors ${
-                          selectedNote?.trackId === track.id && selectedNote?.noteIndex === idx
-                            ? 'ring-2 ring-white'
-                            : ''
-                        } ${draggingNote || resizingNote ? 'cursor-grabbing' : 'cursor-grab'}`}
-                        style={{
-                          left: `${note.start * zoom}px`,
-                          width: `${note.duration * zoom}px`,
-                        }}
-                        onMouseDown={(e) => handleNoteMouseDown(e, track.id, idx, false)}
-                      >
-                        <div className="text-xs text-white p-1 truncate pointer-events-none">
-                          {pitchToNote(note.pitch)}{note.isChord ? ' ♫' : ''}
-                        </div>
+                        } rounded transition-colors ${selectedNotes.some(n => n.trackId === track.id && n.noteIndex === idx)
+                          ? 'ring-2 ring-white'
+                          : ''
+                        } ${
+                          note.isFromLoop
+                            ? 'cursor-not-allowed' // Loop notes: not editable
+                            : draggingNote || resizingNote
+                              ? 'cursor-grabbing'
+                              : 'cursor-grab'
+                        }`}
+                      style={{
+                        left: `${(() => {
+                          // Check if this note is being dragged (either primary or part of multi-selection)
+                          const isPrimaryDrag = draggingNote?.trackId === track.id && draggingNote?.noteIndex === idx;
+                          const isMultiDrag = draggingNote?.selectedNotes?.some(n => n.trackId === track.id && n.noteIndex === idx);
 
-                        {/* Resize handle */}
+                          if ((isPrimaryDrag || isMultiDrag) && draggingNote && draggingNote.currentStart !== undefined) {
+                            const delta = draggingNote.currentStart - draggingNote.initialStart;
+                            return (note.start + delta) * zoom;
+                          }
+                          return note.start * zoom;
+                        })()}px`,
+                        width: `${
+                          resizingNote?.trackId === track.id && resizingNote?.noteIndex === idx && resizingNote.currentDuration !== undefined
+                            ? resizingNote.currentDuration * zoom
+                            : note.duration * zoom
+                        }px`,
+                      }}
+                      onMouseDown={(e) => handleNoteMouseDown(e, track.id, idx, false)}
+                    >
+                      <div className="text-xs text-white p-1 truncate pointer-events-none">
+                        {pitchToNote(note.pitch)}{note.isChord ? ' ♫' : ''}
+                      </div>
+
+                      {/* Resize handle - hidden for loop notes */}
+                      {!note.isFromLoop && (
                         <div
                           className="absolute right-0 top-0 bottom-0 w-2 bg-white/30 hover:bg-white/50 cursor-ew-resize"
                           onMouseDown={(e) => handleNoteMouseDown(e, track.id, idx, true)}
                         />
-                      </div>
-                    ))}
-
-                    {/* Playback cursor */}
-                    {isPlaying && (
-                      <div
-                        className="absolute top-0 w-0.5 h-full bg-red-500 z-10 pointer-events-none"
-                        style={{left: `${secondsToBeats(currentTime) * zoom}px`}}
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
+    </div>
   );
 }

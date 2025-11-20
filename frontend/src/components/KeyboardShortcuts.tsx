@@ -28,6 +28,12 @@ export function KeyboardShortcuts({ isOpen, onClose }: KeyboardShortcutsProps) {
   const modKey = isMac ? '⌘' : 'Ctrl';
 
   const shortcuts = [
+    { category: "File Operations", items: [
+      { keys: [modKey, 'S'], description: "Save Project (Export .maa)" },
+      { keys: [modKey, 'O'], description: "Open Project (Import .maa)" },
+      { keys: [modKey, 'E'], description: "Export MIDI" },
+      { keys: [modKey, 'Shift', 'E'], description: "Export Audio (WAV)" },
+    ]},
     { category: "Editing", items: [
       { keys: [modKey, 'Z'], description: "Undo" },
       { keys: [modKey, 'Y'], description: "Redo" },
@@ -37,6 +43,7 @@ export function KeyboardShortcuts({ isOpen, onClose }: KeyboardShortcutsProps) {
       { keys: ['Click + Drag'], description: "Box select notes" },
       { keys: ['Shift', 'Click'], description: "Add/remove from selection" },
       { keys: [modKey, 'A'], description: "Select all" },
+      { keys: ['Esc'], description: "Deselect all" },
     ]},
     { category: "Clipboard", items: [
       { keys: [modKey, 'C'], description: "Copy selected notes" },
@@ -50,6 +57,9 @@ export function KeyboardShortcuts({ isOpen, onClose }: KeyboardShortcutsProps) {
     ]},
     { category: "Playback", items: [
       { keys: ['Space'], description: "Play/Pause" },
+    ]},
+    { category: "Code Editor", items: [
+      { keys: [modKey, 'I'], description: "Change Instrument (on instrument line)" },
     ]},
     { category: "Help", items: [
       { keys: ['?'], description: "Show keyboard shortcuts" },

@@ -2,9 +2,16 @@ FROM python:3.11-slim
 
 WORKDIR /app/backend
 
-# Install deps
+# Install system dependencies (curl for healthcheck, ffmpeg for audio)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies (in a separate layer for better caching)
 COPY requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r /tmp/requirements.txt
 
 # Copy source into /app/backend 
 COPY . /app/backend

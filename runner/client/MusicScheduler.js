@@ -6,6 +6,7 @@
 class MusicScheduler {
     constructor() {
         this.scheduledEvents = [];
+        this.audioPlayers = new Map(); // trackId -> Tone.Player
         this.isPlaying = false;
         this.startTime = null;
     }
@@ -61,6 +62,23 @@ class MusicScheduler {
         }
     }
 
+    scheduleAudioClip(audioData, startTime, duration, volume = 1.0, trackId = 'audio') {
+        const event = {
+            type: 'audio',
+            audioData,
+            time: startTime,
+            duration,
+            volume,
+            trackId
+        };
+
+        this.scheduledEvents.push(event);
+
+        if (this.isPlaying) {
+            this._executeAudioEvent(event);
+        }
+    }
+
     _executeNoteEvent(event) {
         Tone.Transport.schedule((time) => {
             try {
@@ -111,6 +129,44 @@ class MusicScheduler {
         }, event.time);
     }
 
+    _executeAudioEvent(event) {
+        try {
+            // Create player if not exists
+            const playerKey = `${event.trackId}_${event.time}`;
+
+            if (!this.audioPlayers.has(playerKey)) {
+                // Convert base64 to data URL
+                const audioUrl = `data:audio/wav;base64,${event.audioData}`;
+
+                // Create Tone.Player
+                const player = new Tone.Player({
+                    url: audioUrl,
+                    volume: Tone.gainToDb(event.volume),
+                    onload: () => {
+                        console.log(`[MusicScheduler] Audio clip loaded for ${event.trackId}`);
+                    }
+                }).toDestination();
+
+                this.audioPlayers.set(playerKey, player);
+            }
+
+            const player = this.audioPlayers.get(playerKey);
+
+            // Schedule playback
+            Tone.Transport.schedule((time) => {
+                try {
+                    player.start(time);
+                    console.log(`[MusicScheduler] Playing audio clip at ${event.time}s`);
+                } catch (error) {
+                    console.error('[MusicScheduler] Error playing audio clip:', error);
+                }
+            }, event.time);
+
+        } catch (error) {
+            console.error('[MusicScheduler] Error creating audio player:', error);
+        }
+    }
+
     async start(tempo = 120) {
         if (this.isPlaying) {
             console.warn('[MusicScheduler] Already playing');
@@ -141,6 +197,9 @@ class MusicScheduler {
                     Tone.Transport.schedule(() => {
                         Tone.Transport.bpm.value = event.bpm;
                     }, event.time);
+                    break;
+                case 'audio':
+                    this._executeAudioEvent(event);
                     break;
             }
         });
@@ -174,6 +233,13 @@ class MusicScheduler {
     clear() {
         this.stop();
         this.scheduledEvents = [];
+
+        // Dispose of all audio players
+        this.audioPlayers.forEach((player, key) => {
+            player.dispose();
+        });
+        this.audioPlayers.clear();
+
         console.log('[MusicScheduler] Cleared all events');
     }
 
@@ -182,9 +248,15 @@ class MusicScheduler {
 
         let maxTime = 0;
         this.scheduledEvents.forEach(event => {
-            const eventEnd = Tone.Time(event.time).toSeconds() +
-                            Tone.Time(event.duration || 0).toSeconds();
-            maxTime = Math.max(maxTime, eventEnd);
+            if (event.type === 'audio') {
+                // Audio clips use absolute start time and duration
+                const eventEnd = event.time + event.duration;
+                maxTime = Math.max(maxTime, eventEnd);
+            } else {
+                const eventEnd = Tone.Time(event.time).toSeconds() +
+                                Tone.Time(event.duration || 0).toSeconds();
+                maxTime = Math.max(maxTime, eventEnd);
+            }
         });
 
         return maxTime;

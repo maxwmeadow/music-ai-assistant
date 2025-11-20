@@ -6,14 +6,18 @@ import { MixerPanel } from "@/components/MixerPanel";
 import { api } from "@/lib/api";
 import { RecorderControls } from "@/components/RecorderControls";
 import { parseTracksFromDSL, ParsedTrack } from "@/lib/dslParser";
-import { Mic, Music, Drum, Play, Square, Sparkles, Sliders, Piano, ChevronDown, ChevronUp, Undo, Redo } from "lucide-react";
+import { Mic, Music, Drum, Play, Square, Sparkles, Sliders, Piano, ChevronDown, Undo, Redo, Radio, Repeat } from "lucide-react";
 import { Timeline } from "@/components/Timeline/Timeline";
-import { usePlaybackTime } from "@/hooks/usePlaybackTime";
 import { PianoRoll } from "@/components/PianoRoll/PianoRoll";
 import DetectionTuner from "@/components/DetectionTuner";
 import { compileIR, VisualizationData } from "@/lib/hum2melody-api";
 import { useHistory } from "@/hooks/useHistory";
 import { KeyboardShortcuts } from "@/components/KeyboardShortcuts";
+import { AudioService } from "@/services/audioService";
+import { DSLService } from "@/services/dslService";
+import { FileMenu } from "@/components/FileMenu";
+import { ProjectFile } from "@/lib/export";
+import { TrackNameModal } from "@/components/TrackNameModal";
 
 export default function Home() {
   const { pushHistory, undo, redo, canUndo, canRedo, currentState: code } = useHistory("// Your generated music code will appear here...");
@@ -34,8 +38,15 @@ export default function Home() {
   const [tracks, setTracks] = useState<ParsedTrack[]>([]);
   const [trackVolumes, setTrackVolumes] = useState<Record<string, number>>({});
   const [isPlaying, setIsPlaying] = useState(false);
-  const currentTime = usePlaybackTime(isPlaying);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
   const [selectedTrackForPianoRoll, setSelectedTrackForPianoRoll] = useState<string | null>(null);
+  const [metronomeEnabled, setMetronomeEnabled] = useState(false);
+
+  // Loop region state
+  const [loopEnabled, setLoopEnabled] = useState(false);
+  const [loopStart, setLoopStart] = useState(0);
+  const [loopEnd, setLoopEnd] = useState(4);
 
   // Detection Tuning State
   const [tuningMode, setTuningMode] = useState(false);
@@ -48,6 +59,10 @@ export default function Home() {
   const [showRecorder, setShowRecorder] = useState(false);
   const [recordingMode, setRecordingMode] = useState<'melody' | 'drums' | null>(null);
 
+  // Track name modal state
+  const [showTrackNameModal, setShowTrackNameModal] = useState(false);
+  const [pendingIR, setPendingIR] = useState<any>(null);
+
   // Resizable panels
   const [leftPanelWidth, setLeftPanelWidth] = useState(50); // percentage
   const [isResizing, setIsResizing] = useState(false);
@@ -56,6 +71,8 @@ export default function Home() {
     setToast(message);
     setTimeout(() => setToast(null), 3000);
   };
+
+  const calculateMaxDuration = () => DSLService.calculateMaxDuration(code);
 
   const fetchTest = async () => {
     setLoadingTest(true);
@@ -86,15 +103,24 @@ export default function Home() {
       });
 
       const data = await response.json();
-      setExecutableCode(data.meta?.executable_code || "");
+      const execCode = data.meta?.executable_code || "";
+      setExecutableCode(execCode);
 
       const parsedTracks = parseTracksFromDSL(code);
       setTracks(parsedTracks);
+
+      // Preload audio samples
+      if (execCode) {
+        setCurrentTime(0);
+        setIsPlaying(false);
+        await AudioService.preloadSamples(execCode, trackVolumes, setIsLoadingAudio);
+      }
 
       showToast("Code compiled successfully");
     } catch (error) {
       console.error(error);
       showToast("Compilation failed");
+      setIsLoadingAudio(false);
     } finally {
       setLoadingRun(false);
     }
@@ -121,60 +147,59 @@ export default function Home() {
       return;
     }
 
+    if (isLoadingAudio) {
+      showToast("Audio is still loading...");
+      return;
+    }
+
+    AudioService.clearAutoStop();
+
     setLoadingPlay(true);
     setIsPlaying(true);
+
     try {
-      const Tone = await import('tone');
-      (window as any).Tone = Tone;
-      (window as any).__trackVolumes = trackVolumes;
+      await AudioService.initializeTone(trackVolumes);
 
-      eval(executableCode);
+      // Check if we're at or past the end - if so, reset to beginning
+      const transportState = AudioService.getTransportState();
+      const maxDuration = calculateMaxDuration();
+      const currentPosition = transportState?.seconds || 0;
 
+      if (currentPosition >= maxDuration - 0.1) {
+        // At the end, reset to beginning
+        AudioService.seek(0);
+        setCurrentTime(0);
+      }
+
+      const updatedTransportState = AudioService.getTransportState();
+      const isResuming = updatedTransportState && updatedTransportState.seconds > 0 && updatedTransportState.state === 'paused';
+
+      // Load samples if not already preloaded
+      if (!isResuming && !AudioService.areSamplesPreloaded()) {
+        setIsLoadingAudio(true);
+        eval(executableCode);
+        AudioService.markSamplesPreloaded();
+      }
+
+      AudioService.startTransport();
+
+      // Apply volume settings
       setTimeout(() => {
         Object.entries(trackVolumes).forEach(([trackId, volume]) => {
           handleVolumeChange(trackId, volume);
         });
       }, 100);
 
-      const tempoMatch = code.match(/tempo\((\d+)\)/);
-      const tempo = tempoMatch ? parseInt(tempoMatch[1]) : 120;
+      // Calculate current position for auto-stop (use updated state after potential reset)
+      const currentPositionForAutoStop = updatedTransportState?.seconds || 0;
 
-      let maxDuration = 0;
-      const trackRegex = /track\("([^"]+)"\)\s*\{([^}]+)\}/g;
-      let trackMatch;
-
-      while ((trackMatch = trackRegex.exec(code)) !== null) {
-        const trackContent = trackMatch[2];
-        const noteRegex = /note\("([^"]+)",\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g;
-        let noteMatch;
-
-        while ((noteMatch = noteRegex.exec(trackContent)) !== null) {
-          const start = parseFloat(noteMatch[2]);
-          const duration = parseFloat(noteMatch[3]);
-          const endTime = start + duration;
-          maxDuration = Math.max(maxDuration, endTime);
-        }
-
-        const chordRegex = /chord\(\[[^\]]+\],\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g;
-        let chordMatch;
-
-        while ((chordMatch = chordRegex.exec(trackContent)) !== null) {
-          const start = parseFloat(chordMatch[1]);
-          const duration = parseFloat(chordMatch[2]);
-          const endTime = start + duration;
-          maxDuration = Math.max(maxDuration, endTime);
-        }
+      // Set auto-stop timeout (only if not looping)
+      if (!loopEnabled) {
+        const remainingTime = Math.max(0, maxDuration - currentPositionForAutoStop) + 1.5;
+        AudioService.setAutoStop(remainingTime, stopAudio);
       }
 
-      console.log(`[Playback] Calculated duration: ${maxDuration.toFixed(2)}s`);
-
-      const stopTimeout = setTimeout(() => {
-        stopAudio();
-      }, (maxDuration + 1.5) * 1000);
-
-      (window as any).__autoStopTimeout = stopTimeout;
-
-      showToast(`Playing (${maxDuration.toFixed(1)}s)...`);
+      showToast(isResuming ? 'Resumed' : `Playing (${maxDuration.toFixed(1)}s)...`);
     } catch (error) {
       console.error(error);
       showToast("Playback error");
@@ -185,16 +210,217 @@ export default function Home() {
   };
 
   const stopAudio = () => {
-    if ((window as any).__autoStopTimeout) {
-      clearTimeout((window as any).__autoStopTimeout);
-    }
-
-    if ((window as any).__musicControls?.stop) {
-      (window as any).__musicControls.stop();
-      setIsPlaying(false);
-      showToast("Stopped");
+    AudioService.clearAutoStop();
+    const wasPlaying = AudioService.pauseTransport();
+    setIsPlaying(false);
+    if (wasPlaying) {
+      showToast("Paused");
     }
   };
+
+  const resetAudio = () => {
+    AudioService.clearAutoStop();
+    AudioService.stopTransport();
+    setCurrentTime(0);
+    setIsPlaying(false);
+    showToast("Stopped");
+  };
+
+  const handleSeek = (time: number) => {
+    if (isLoadingAudio) return;
+
+    AudioService.seek(time);
+    setCurrentTime(time);
+
+    // Recalculate auto-stop timeout if playing (only if not looping)
+    const transportState = AudioService.getTransportState();
+    if (isPlaying && transportState?.state === 'started' && !loopEnabled) {
+      const maxDuration = calculateMaxDuration();
+      const remainingTime = Math.max(0, maxDuration - time) + 1.5;
+      AudioService.setAutoStop(remainingTime, stopAudio);
+    }
+  };
+
+  // Metronome implementation using Tone.js
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    let metronome: any = null;
+    let synth: any = null;
+
+    const initMetronome = async () => {
+      if (!metronomeEnabled || !isPlaying) {
+        // Clean up existing metronome
+        if ((window as any).__metronome) {
+          (window as any).__metronome.stop();
+          (window as any).__metronome.dispose();
+          (window as any).__metronome = null;
+        }
+        if ((window as any).__metronomeSynth) {
+          (window as any).__metronomeSynth.dispose();
+          (window as any).__metronomeSynth = null;
+        }
+        if ((window as any).__metronomeChannel) {
+          (window as any).__metronomeChannel.dispose();
+          (window as any).__metronomeChannel = null;
+        }
+        return;
+      }
+
+      // Wait for Tone to be available
+      if (!(window as any).Tone) {
+        return;
+      }
+
+      const Tone = (window as any).Tone;
+      await Tone.start();
+
+      // Create a dedicated channel that bypasses Tone.Destination (so master volume doesn't affect it)
+      const metronomeChannel = new Tone.Channel({
+        volume: -6
+      }).connect(Tone.context.rawContext.destination);
+
+      // Create synth for metronome click - using FMSynth for punchy, clicky sound
+      synth = new Tone.FMSynth({
+        harmonicity: 3,
+        modulationIndex: 10,
+        oscillator: {
+          type: 'sine'
+        },
+        envelope: {
+          attack: 0.001,
+          decay: 0.01,
+          sustain: 0,
+          release: 0.01
+        },
+        modulation: {
+          type: 'square'
+        },
+        modulationEnvelope: {
+          attack: 0.0002,
+          decay: 0.02,
+          sustain: 0,
+          release: 0.01
+        }
+      }).connect(metronomeChannel);
+
+      (window as any).__metronomeChannel = metronomeChannel;
+
+      // Create loop that triggers on each beat
+      metronome = new Tone.Loop((time: number) => {
+        // Play different pitches for downbeat vs other beats
+        const measure = Math.floor(Tone.Transport.position.split(':')[0]);
+        const beat = Math.floor(Tone.Transport.position.split(':')[1]);
+
+        // Higher pitch on downbeat (first beat of measure)
+        const note = beat === 0 ? 'C5' : 'C4';
+        synth.triggerAttackRelease(note, '16n', time);
+      }, '4n'); // Trigger every quarter note
+
+      metronome.start(0);
+
+      // Store references for cleanup
+      (window as any).__metronome = metronome;
+      (window as any).__metronomeSynth = synth;
+    };
+
+    initMetronome();
+
+    return () => {
+      // Cleanup on unmount or when dependencies change
+      if ((window as any).__metronome) {
+        (window as any).__metronome.stop();
+        (window as any).__metronome.dispose();
+        (window as any).__metronome = null;
+      }
+      if ((window as any).__metronomeSynth) {
+        (window as any).__metronomeSynth.dispose();
+        (window as any).__metronomeSynth = null;
+      }
+      if ((window as any).__metronomeChannel) {
+        (window as any).__metronomeChannel.dispose();
+        (window as any).__metronomeChannel = null;
+      }
+    };
+  }, [metronomeEnabled, isPlaying]);
+
+  // Loop region implementation using Tone.Transport
+  useEffect(() => {
+    if (typeof window === 'undefined' || !(window as any).Tone) return;
+
+    const Tone = (window as any).Tone;
+
+    if (loopEnabled && isPlaying) {
+      // Enable looping and set loop points
+      Tone.Transport.loop = true;
+      Tone.Transport.loopStart = loopStart;
+      Tone.Transport.loopEnd = loopEnd;
+    } else {
+      // Disable looping
+      Tone.Transport.loop = false;
+    }
+  }, [loopEnabled, loopStart, loopEnd, isPlaying]);
+
+  // Auto-stop management: handle loop toggle during playback
+  useEffect(() => {
+    // Only react to loop toggle changes, not initial playback start
+    if (!isPlaying) return;
+
+    const transportState = AudioService.getTransportState();
+    if (!transportState || transportState.state !== 'started') return;
+
+    // Clear any existing auto-stop
+    AudioService.clearAutoStop();
+
+    if (!loopEnabled) {
+      // When loop is disabled during playback, set auto-stop for remaining time
+      const maxDuration = calculateMaxDuration();
+      const currentPosition = transportState.seconds || 0;
+      const remainingTime = Math.max(0, maxDuration - currentPosition) + 1.5;
+
+      if (remainingTime > 0) {
+        AudioService.setAutoStop(remainingTime, stopAudio);
+      } else {
+        // Already past the end, stop immediately
+        stopAudio();
+      }
+    }
+    // When loop is enabled, no auto-stop (plays indefinitely)
+  }, [loopEnabled]);
+
+  // Poll transport time continuously
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const state = AudioService.getTransportState();
+      if (state) {
+        setCurrentTime(state.seconds);
+      }
+    }, isPlaying ? 50 : 100);
+
+    return () => clearInterval(interval);
+  }, [isPlaying]);
+
+  // Intercept console.log to detect when samples are loaded
+  useEffect(() => {
+    const originalLog = console.log;
+
+    console.log = function(...args: any[]) {
+      originalLog.apply(console, args);
+
+      const message = args.join(' ');
+
+      if (message.includes('[Music] Playing...')) {
+        if (AudioService.isPreloading()) {
+          AudioService.handlePreloadComplete();
+        }
+        setIsLoadingAudio(false);
+      }
+    };
+
+    return () => {
+      console.log = originalLog;
+    };
+  }, []);
 
   const handleMelodyGenerated = async (result: any) => {
     console.log("[DEBUG] handleMelodyGenerated called with:", result);
@@ -202,6 +428,9 @@ export default function Home() {
     console.log("[DEBUG] Has session_id?", !!result.session_id);
 
     try {
+      // Check if user has existing code
+      const hasExistingCode = code.trim() && code.trim() !== "// Your generated music code will appear here...";
+
       if (result.visualization && result.session_id) {
         console.log("[DEBUG] Opening tuning modal with session:", result.session_id);
         setSessionId(result.session_id);
@@ -209,9 +438,27 @@ export default function Home() {
         setCurrentIR(result.ir);
         setTuningMode(true);
         showToast("Tuning interface ready - adjust parameters to improve detection");
+      } else if (recordingMode === 'drums' && result.visualization) {
+        // Drums with visualization - store IR for after visualization closes
+        console.log("[DEBUG] Drums visualization - storing IR for later");
+        setPendingIR(result.ir);
+        // Visualization modal will be shown by RecorderControls
+        // Track name modal will be shown when visualization closes (via onVisualizationClose)
       } else {
         console.log("[DEBUG] No visualization data, using IR directly");
-        await applyIRAndCompile(result.ir);
+
+        if (hasExistingCode) {
+          // Store IR and show track name modal
+          setPendingIR(result.ir);
+          setShowTrackNameModal(true);
+          setShowRecorder(false);
+          // Keep recordingMode for modal defaults - will be cleared when modal closes
+        } else {
+          // No existing code, just set it directly
+          await applyIRAndCompile(result.ir);
+          setShowRecorder(false);
+          setRecordingMode(null);
+        }
       }
     } catch (error) {
       console.error("Failed to process melody:", error);
@@ -223,11 +470,18 @@ export default function Home() {
     const isDrumsWithVisualization = recordingMode === 'drums' && result.visualization;
     if (!isDrumsWithVisualization) {
       setShowRecorder(false);
-      setRecordingMode(null);
+      // Don't clear recordingMode here if we're showing track name modal
+      if (!result.visualization || result.session_id) {
+        // Only clear if not waiting for track name modal
+        const hasExistingCode = code.trim() && code.trim() !== "// Your generated music code will appear here...";
+        if (!hasExistingCode) {
+          setRecordingMode(null);
+        }
+      }
     }
   };
 
-  const applyIRAndCompile = async (ir: any) => {
+  const applyIRAndCompile = async (ir: any, append: boolean = false, trackName?: string, instrument?: string) => {
     showToast("Converting to DSL...");
 
     try {
@@ -240,13 +494,26 @@ export default function Home() {
       const data = await response.json();
 
       if (data.dsl) {
-        setCode(data.dsl);
+        let finalDSL = data.dsl;
+
+        // If appending, merge with existing DSL
+        if (append && trackName) {
+          try {
+            finalDSL = DSLService.appendTrack(code, data.dsl, trackName, instrument);
+          } catch (error) {
+            console.error("Failed to append track:", error);
+            showToast("Failed to append track");
+            return;
+          }
+        }
+
+        setCode(finalDSL);
         setExecutableCode(data.meta?.executable_code || "");
 
-        const parsedTracks = parseTracksFromDSL(data.dsl);
+        const parsedTracks = parseTracksFromDSL(finalDSL);
         setTracks(parsedTracks);
 
-        showToast("Melody loaded! Click compile & play");
+        showToast(append ? "Track added!" : "Melody loaded! Click compile & play");
       } else {
         showToast("Failed to convert to DSL");
       }
@@ -258,13 +525,98 @@ export default function Home() {
 
   const handleApplyTuning = async (finalIR: any) => {
     setTuningMode(false);
-    await applyIRAndCompile(finalIR);
+
+    // Check if user has existing code - if so, show track name modal
+    const hasExistingCode = code.trim() && code.trim() !== "// Your generated music code will appear here...";
+
+    if (hasExistingCode) {
+      // Store IR and show track name modal
+      setPendingIR(finalIR);
+      setShowTrackNameModal(true);
+    } else {
+      // No existing code, just set it directly
+      await applyIRAndCompile(finalIR);
+    }
   };
 
   const openRecorder = (mode: 'melody' | 'drums') => {
     setRecordingMode(mode);
     setShowRecorder(true);
   };
+
+  const handleTrackNameConfirm = async (trackName: string, instrument: string) => {
+    setShowTrackNameModal(false);
+    if (pendingIR) {
+      await applyIRAndCompile(pendingIR, true, trackName, instrument);
+      setPendingIR(null);
+    }
+    setRecordingMode(null); // Clear recording mode after modal closes
+  };
+
+  const handleTrackNameCancel = () => {
+    setShowTrackNameModal(false);
+    setPendingIR(null);
+    setRecordingMode(null); // Clear recording mode on cancel
+    showToast("Track import cancelled");
+  };
+
+  const handleVisualizationClose = () => {
+    // Called when drums visualization modal closes
+    // Show track name modal if user has existing code and we have pending IR
+    const hasExistingCode = code.trim() && code.trim() !== "// Your generated music code will appear here...";
+
+    setShowRecorder(false);
+
+    if (hasExistingCode && pendingIR) {
+      // Show track name modal with the pending IR
+      setShowTrackNameModal(true);
+    } else if (pendingIR) {
+      // No existing code, just apply directly
+      applyIRAndCompile(pendingIR);
+      setPendingIR(null);
+      setRecordingMode(null);
+    }
+  };
+
+  // File operations handlers
+  const handleProjectImport = async (project: ProjectFile) => {
+    try {
+      setCode(project.dsl);
+
+      // Parse tracks
+      const parsedTracks = parseTracksFromDSL(project.dsl);
+      setTracks(parsedTracks);
+
+      // Restore IR if available
+      if (project.ir) {
+        setCurrentIR(project.ir);
+      }
+
+      // Restore track volumes if available
+      if (project.settings?.trackVolumes) {
+        setTrackVolumes(project.settings.trackVolumes);
+      }
+
+      // Compile the imported DSL
+      await sendToRunner();
+
+      showToast(`Project "${project.metadata.title || 'Untitled'}" loaded`);
+    } catch (error) {
+      console.error('Failed to import project:', error);
+      showToast('Failed to import project');
+    }
+  };
+
+  const handleMIDIImport = async (ir: any) => {
+    try {
+      setCurrentIR(ir);
+      await applyIRAndCompile(ir);
+    } catch (error) {
+      console.error('Failed to import MIDI:', error);
+      showToast('Failed to import MIDI');
+    }
+  };
+
 
   // Handle resize drag
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -297,7 +649,7 @@ export default function Home() {
     };
   }, [isResizing]);
 
-  // Keyboard shortcuts for undo/redo and help
+  // Keyboard shortcuts for undo/redo, play/pause, file operations, and help
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Check if we're in an input/textarea (don't trigger shortcuts while typing)
@@ -306,8 +658,59 @@ export default function Home() {
         return;
       }
 
+      // Check if Monaco editor is focused (don't trigger space for play/pause while typing in editor)
+      if (target.classList.contains('monaco-editor') ||
+          target.closest('.monaco-editor') ||
+          target.classList.contains('view-line') ||
+          target.classList.contains('inputarea')) {
+        // Allow space to work normally in Monaco editor
+        if (e.key === ' ') {
+          return;
+        }
+      }
+
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
+
+      // File operations
+      // Save Project: Ctrl+S
+      if (ctrlOrCmd && e.key === 's' && !e.shiftKey) {
+        e.preventDefault();
+        // Trigger file menu export
+        const exportButton = document.querySelector('[title*="Export project"]') as HTMLButtonElement;
+        if (exportButton) exportButton.click();
+      }
+
+      // Open Project: Ctrl+O
+      if (ctrlOrCmd && e.key === 'o') {
+        e.preventDefault();
+        const openButton = document.querySelector('[title*="Open project"]') as HTMLButtonElement;
+        if (openButton) openButton.click();
+      }
+
+      // Export MIDI: Ctrl+E (without Shift)
+      if (ctrlOrCmd && e.key === 'e' && !e.shiftKey) {
+        e.preventDefault();
+        const midiButton = document.querySelector('[title*="Export as MIDI"]') as HTMLButtonElement;
+        if (midiButton) midiButton.click();
+      }
+
+      // Export Audio: Ctrl+Shift+E
+      if (ctrlOrCmd && e.shiftKey && e.key === 'E') {
+        e.preventDefault();
+        const audioButton = document.querySelector('[title*="Export as WAV"]') as HTMLButtonElement;
+        if (audioButton) audioButton.click();
+      }
+
+      // Play/Pause: Space
+      if (e.key === ' ' && !ctrlOrCmd) {
+        e.preventDefault();
+        if (isPlaying) {
+          stopAudio();
+        } else {
+          playAudio();
+        }
+      }
 
       // Show keyboard shortcuts: ?
       if (e.key === '?' && !ctrlOrCmd) {
@@ -332,7 +735,7 @@ export default function Home() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo]);
+  }, [undo, redo, isPlaying, isLoadingAudio, executableCode, playAudio, stopAudio]);
 
   return (
     <div className="h-screen flex flex-col bg-[#1a1a1a] overflow-hidden">
@@ -356,6 +759,15 @@ export default function Home() {
           }}
         />
       )}
+
+      {/* Track Name Modal */}
+      <TrackNameModal
+        isOpen={showTrackNameModal}
+        defaultTrackName={recordingMode === 'drums' ? 'drums' : 'melody'}
+        defaultInstrument={recordingMode === 'drums' ? 'drums/basic_kit' : 'piano/grand_piano_k'}
+        onConfirm={handleTrackNameConfirm}
+        onCancel={handleTrackNameCancel}
+      />
 
       {/* Toast */}
       {toast && (
@@ -395,12 +807,9 @@ export default function Home() {
               </button>
             </div>
             <RecorderControls
-              onMelodyGenerated={handleMelodyGenerated}
               mode={recordingMode || 'melody'}
-              onVisualizationClose={() => {
-                setShowRecorder(false);
-                setRecordingMode(null);
-              }}
+              onMelodyGenerated={handleMelodyGenerated}
+              onVisualizationClose={handleVisualizationClose}
             />
           </div>
         </div>
@@ -414,6 +823,26 @@ export default function Home() {
             <Music className="w-5 h-5 text-white" />
           </div>
           <span className="text-white font-bold text-lg">Studio</span>
+        </div>
+
+        {/* File Menu */}
+        <div className="border-r border-gray-700 pr-4">
+          <FileMenu
+            dslCode={code}
+            tracks={tracks}
+            currentIR={currentIR}
+            executableCode={executableCode}
+            metadata={{
+              title: "Untitled Project",
+              tempo: 120,
+            }}
+            settings={{
+              trackVolumes: trackVolumes,
+            }}
+            onProjectImport={handleProjectImport}
+            onMIDIImport={handleMIDIImport}
+            onToast={showToast}
+          />
         </div>
 
         {/* Model Buttons */}
@@ -446,22 +875,48 @@ export default function Home() {
         <div className="flex items-center gap-2 border-r border-gray-700 pr-4">
           {!isPlaying ? (
             <button
-              disabled={loadingPlay || !executableCode}
+              disabled={loadingPlay || !executableCode || isLoadingAudio}
               onClick={playAudio}
               className="flex items-center justify-center w-10 h-10 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg transition-colors"
-              title="Play (Space)"
+              title={isLoadingAudio ? "Loading audio..." : "Play (Space)"}
             >
               <Play className="w-5 h-5" />
             </button>
           ) : (
             <button
               onClick={stopAudio}
-              className="flex items-center justify-center w-10 h-10 bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors"
+              disabled={isLoadingAudio}
+              className="flex items-center justify-center w-10 h-10 bg-red-600 hover:bg-red-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg transition-colors"
               title="Stop (Space)"
             >
               <Square className="w-5 h-5" />
             </button>
           )}
+
+          <button
+            onClick={() => setMetronomeEnabled(!metronomeEnabled)}
+            className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors ${
+              metronomeEnabled
+                ? 'bg-blue-600 hover:bg-blue-500 text-white'
+                : 'bg-[#2a2a2a] hover:bg-[#333] text-gray-400 border border-gray-700'
+            }`}
+            title={metronomeEnabled ? "Metronome On (M)" : "Metronome Off (M)"}
+          >
+            <Radio className="w-5 h-5" />
+          </button>
+
+          {/* Loop Controls */}
+          <button
+            onClick={() => setLoopEnabled(!loopEnabled)}
+            className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors ${
+              loopEnabled
+                ? 'bg-purple-600 hover:bg-purple-500 text-white'
+                : 'bg-[#2a2a2a] hover:bg-[#333] text-gray-400 border border-gray-700'
+            }`}
+            title={loopEnabled ? `Loop ${loopStart.toFixed(1)}s - ${loopEnd.toFixed(1)}s` : "Loop Off (L)"}
+          >
+            <Repeat className="w-5 h-5" />
+          </button>
 
           <button
             disabled={loadingRun}
@@ -570,6 +1025,15 @@ export default function Home() {
                 onCodeChange={setCode}
                 isPlaying={isPlaying}
                 currentTime={currentTime}
+                onSeek={handleSeek}
+                isLoading={isLoadingAudio}
+                loopEnabled={loopEnabled}
+                loopStart={loopStart}
+                loopEnd={loopEnd}
+                onLoopChange={(start, end) => {
+                  setLoopStart(start);
+                  setLoopEnd(end);
+                }}
               />
             ) : (
               <div className="h-full flex items-center justify-center text-gray-500">

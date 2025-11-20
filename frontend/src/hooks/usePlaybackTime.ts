@@ -5,7 +5,12 @@ export function usePlaybackTime(isPlaying: boolean) {
 
   useEffect(() => {
     if (!isPlaying) {
-      setCurrentTime(0);
+      // Don't reset to 0 immediately - let the Transport position persist
+      // This allows seeking while paused
+      if ((window as any).Tone?.Transport) {
+        const transportTime = (window as any).Tone.Transport.seconds;
+        setCurrentTime(transportTime);
+      }
       return;
     }
 

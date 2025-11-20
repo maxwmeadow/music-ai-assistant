@@ -15,8 +15,18 @@ const MusicJSONParser = require('./parser');
 const app = express();
 const PORT = process.env.PORT || 5001;
 
+// CORS configuration
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',')
+  : ['http://localhost:3000', 'http://localhost:8000'];
+
+console.log('Runner CORS allowed origins:', allowedOrigins);
+
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true
+}));
 app.use(express.json({ limit: '50mb' }));
 
 // Static file serving for samples
@@ -68,8 +78,15 @@ app.post('/eval', async (req, res) => {
         if (musicData.__dsl_passthrough) {
             console.log('[EVAL] DSL passthrough mode');
             dslCode = musicData.__dsl_passthrough;
-            // Parse DSL to get metadata
-            irData = null;
+
+            // Check if there's also IR data (for audio clips)
+            if (musicData.tracks && musicData.tracks.length > 0) {
+                console.log('[EVAL] IR data also present (audio clips)');
+                const parser = new MusicJSONParser();
+                irData = parser.parse(JSON.stringify(musicData));
+            } else {
+                irData = null;
+            }
         } else {
             console.log('[EVAL] IR mode - converting to DSL');
             // Convert IR to DSL
@@ -80,8 +97,8 @@ app.post('/eval', async (req, res) => {
 
         console.log('[EVAL] DSL Code:', dslCode.substring(0, 200) + '...');
 
-        // Compile DSL to executable Tone.js code
-        const result = await compileDSLToExecutable(dslCode);
+        // Compile DSL + IR to executable Tone.js code
+        const result = await compileDSLToExecutable(dslCode, irData);
 
         console.log('[EVAL] Compilation successful');
 
@@ -136,17 +153,156 @@ function irToDSL(ir) {
 }
 
 /**
+ * Expand loop constructs in DSL code
+ * Supports: loop(startTime, endTime) { note(pitch, relativeTime, duration, velocity) }
+ */
+function expandLoops(dslCode) {
+    let expandedCode = dslCode;
+    let maxIterations = 100;
+    let iteration = 0;
+
+    // Time-based loop pattern: loop(startTime, endTime) { content }
+    const loopPattern = /loop\s*\(\s*([\d.]+)\s*,\s*([\d.]+)\s*\)\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g;
+    let match;
+
+    while ((match = loopPattern.exec(expandedCode)) !== null && iteration < maxIterations) {
+        const fullMatch = match[0];
+        const startTime = parseFloat(match[1]);
+        const endTime = parseFloat(match[2]);
+        const loopContent = match[3];
+
+        // Parse notes to find pattern duration
+        const notePattern = /note\("([^"]+)",\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g;
+        const chordPattern = /chord\(\[([^\]]+)\],\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g;
+
+        let maxTime = 0;
+        let noteMatch;
+
+        // Find max time in notes
+        while ((noteMatch = notePattern.exec(loopContent)) !== null) {
+            const relativeStart = parseFloat(noteMatch[2]);
+            const duration = parseFloat(noteMatch[3]);
+            maxTime = Math.max(maxTime, relativeStart + duration);
+        }
+
+        // Find max time in chords
+        while ((noteMatch = chordPattern.exec(loopContent)) !== null) {
+            const relativeStart = parseFloat(noteMatch[2]);
+            const duration = parseFloat(noteMatch[3]);
+            maxTime = Math.max(maxTime, relativeStart + duration);
+        }
+
+        if (maxTime === 0) {
+            // No notes found, skip this loop
+            expandedCode = expandedCode.replace(fullMatch, '');
+            loopPattern.lastIndex = 0;
+            iteration++;
+            continue;
+        }
+
+        const patternDuration = maxTime;
+        const loopDuration = endTime - startTime;
+        const repetitions = Math.ceil(loopDuration / patternDuration);
+
+        let expandedContent = '';
+
+        // Generate repeated notes with absolute timing
+        for (let rep = 0; rep < repetitions; rep++) {
+            const repStartTime = startTime + (rep * patternDuration);
+
+            if (repStartTime >= endTime) break;
+
+            // Reset regex for this repetition
+            notePattern.lastIndex = 0;
+            chordPattern.lastIndex = 0;
+
+            // Expand notes
+            while ((noteMatch = notePattern.exec(loopContent)) !== null) {
+                const pitch = noteMatch[1];
+                const relativeStart = parseFloat(noteMatch[2]);
+                const duration = parseFloat(noteMatch[3]);
+                const velocity = parseFloat(noteMatch[4]);
+
+                const absoluteStart = repStartTime + relativeStart;
+
+                if (absoluteStart < endTime) {
+                    expandedContent += `    note("${pitch}", ${absoluteStart.toFixed(4)}, ${duration}, ${velocity})\n`;
+                }
+            }
+
+            // Expand chords
+            while ((noteMatch = chordPattern.exec(loopContent)) !== null) {
+                const notes = noteMatch[1];
+                const relativeStart = parseFloat(noteMatch[2]);
+                const duration = parseFloat(noteMatch[3]);
+                const velocity = parseFloat(noteMatch[4]);
+
+                const absoluteStart = repStartTime + relativeStart;
+
+                if (absoluteStart < endTime) {
+                    expandedContent += `    chord([${notes}], ${absoluteStart.toFixed(4)}, ${duration}, ${velocity})\n`;
+                }
+            }
+        }
+
+        // Replace the loop with expanded content
+        expandedCode = expandedCode.replace(fullMatch, expandedContent);
+        loopPattern.lastIndex = 0;
+        iteration++;
+    }
+
+    return expandedCode;
+}
+
+/**
+ * Extract track blocks from DSL with proper brace matching
+ */
+function extractTracks(dslCode) {
+    const tracks = [];
+    const trackPattern = /track\("([^"]+)"\)\s*\{/g;
+    let match;
+
+    while ((match = trackPattern.exec(dslCode)) !== null) {
+        const trackStart = match.index;
+        const contentStart = trackPattern.lastIndex;
+
+        // Find the matching closing brace
+        let braceCount = 1;
+        let pos = contentStart;
+
+        while (pos < dslCode.length && braceCount > 0) {
+            if (dslCode[pos] === '{') braceCount++;
+            if (dslCode[pos] === '}') braceCount--;
+            pos++;
+        }
+
+        if (braceCount === 0) {
+            const trackBlock = dslCode.substring(trackStart, pos);
+            tracks.push(trackBlock);
+        }
+    }
+
+    return tracks.length > 0 ? tracks : null;
+}
+
+/**
  * Compile DSL to executable Tone.js code
  * This is the core replacement for generator.js
+ * @param {string} dslCode - The DSL code to compile
+ * @param {object|null} irData - Optional IR data (for audio clips)
  */
-async function compileDSLToExecutable(dslCode) {
+async function compileDSLToExecutable(dslCode, irData = null) {
     const CDN_BASE = 'https://pub-e7b8ae5d5dcb4e23b0bf02e7b966c2f7.r2.dev';
+
+    // Expand loops before parsing
+    dslCode = expandLoops(dslCode);
+    console.log('[EVAL] Expanded DSL length:', dslCode.length);
 
     // Parse DSL
     const tempoMatch = dslCode.match(/tempo\((\d+)\)/);
     const tempo = tempoMatch ? parseInt(tempoMatch[1]) : 120;
 
-    const trackMatches = dslCode.match(/track\("([^"]+)"\)\s*{([^}]+)}/g);
+    const trackMatches = extractTracks(dslCode);
     if (!trackMatches) {
         throw new Error('No tracks found in DSL');
     }
@@ -166,12 +322,11 @@ async function compileDSLToExecutable(dslCode) {
             trackConfigs.push({ trackId, instrumentName });
         }
 
-        // Parse notes
+        // Parse notes (4-parameter with absolute timing)
         const noteMatches = trackMatch.match(/note\("([^"]+)",\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g);
         const notes = [];
 
         if (noteMatches) {
-            let currentTime = 0;
             noteMatches.forEach(noteMatch => {
                 const [, note, start, duration, velocity] =
                     noteMatch.match(/note\("([^"]+)",\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/);
@@ -182,12 +337,10 @@ async function compileDSLToExecutable(dslCode) {
                     velocity: parseFloat(velocity),
                     time: parseFloat(start)
                 });
-
-                currentTime += parseFloat(duration);
             });
         }
 
-        // Parse chords
+        // Parse chords (4-parameter with absolute timing)
         const chordMatches = trackMatch.match(/chord\(\[([^\]]+)\],\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g);
         const chords = [];
 
@@ -202,7 +355,7 @@ async function compileDSLToExecutable(dslCode) {
                     notes: chordNotes,
                     duration: parseFloat(duration),
                     velocity: parseFloat(velocity),
-                    time: parseFloat(start)  // Use explicit start time
+                    time: parseFloat(start)
                 });
             });
         }
@@ -231,6 +384,28 @@ async function compileDSLToExecutable(dslCode) {
         });
     });
 
+    // Add audio clips from IR data if present
+    const audioClips = [];
+    if (irData && irData.tracks) {
+        irData.tracks.forEach(track => {
+            if (track.audio) {
+                track.audio.forEach(clip => {
+                    audioClips.push({
+                        trackId: track.id,
+                        audioData: clip.audio_data,
+                        start: clip.start,
+                        duration: clip.duration,
+                        volume: clip.volume || 1.0
+                    });
+
+                    // Update max duration to include audio clips
+                    const clipEnd = clip.start + clip.duration;
+                    maxDuration = Math.max(maxDuration, clipEnd);
+                });
+            }
+        });
+    }
+
     maxDuration += 1;
 
     // Generate standalone executable code
@@ -239,6 +414,7 @@ async function compileDSLToExecutable(dslCode) {
         tempo,
         trackConfigs,
         trackSchedules,
+        audioClips,
         maxDuration
     );
 
@@ -249,6 +425,7 @@ async function compileDSLToExecutable(dslCode) {
             tempo,
             duration: maxDuration,
             trackCount: trackConfigs.length,
+            audioClipCount: audioClips.length,
             source: 'refactored-v2'
         }
     };
@@ -257,9 +434,10 @@ async function compileDSLToExecutable(dslCode) {
 /**
  * Generate executable Tone.js code (replaces old generator template)
  */
-function generateExecutableCode(CDN_BASE, tempo, trackConfigs, trackSchedules, maxDuration) {
+function generateExecutableCode(CDN_BASE, tempo, trackConfigs, trackSchedules, audioClips, maxDuration) {
     const configsJSON = JSON.stringify(trackConfigs);
     const schedulesJSON = JSON.stringify(trackSchedules);
+    const audioClipsJSON = JSON.stringify(audioClips);
 
     return `
 // Auto-generated Tone.js playback code
@@ -271,6 +449,7 @@ function generateExecutableCode(CDN_BASE, tempo, trackConfigs, trackSchedules, m
     const duration = ${maxDuration};
     const trackConfigs = ${configsJSON};
     const trackSchedules = ${schedulesJSON};
+    const audioClips = ${audioClipsJSON};
     
     // PERSISTENT CACHE: Store in window so it survives between plays
     if (!window.__musicCache) {
@@ -506,17 +685,27 @@ function generateExecutableCode(CDN_BASE, tempo, trackConfigs, trackSchedules, m
     // Load all instruments
     console.log('[Music] Loading instruments...');
     const loadPromises =[];
-    
+
     for (const config of trackConfigs) {
-        if (!instrumentPools.has(config.trackId)) {
+        // Use composite key: trackId + instrumentName to detect instrument changes
+        const cacheKey = config.trackId + '::' + config.instrumentName;
+        const existingPool = instrumentPools.get(config.trackId);
+        const existingCacheKey = existingPool?.__cacheKey;
+
+        // Only reuse if the same instrument is cached for this track
+        if (existingPool && existingCacheKey === cacheKey) {
+            console.log('[Music] Reusing cached pool:', config.instrumentName);
+        } else {
+            if (existingPool) {
+                console.log('[Music] Instrument changed for track', config.trackId, '- reloading');
+            }
             const loadPromise = createInstrumentPool(config.instrumentName, 8)
                 .then(pool => {
+                    pool.__cacheKey = cacheKey;
                     instrumentPools.set(config.trackId, pool);
                     console.log('[Music] Loaded:', config.instrumentName);
                 });
             loadPromises.push(loadPromise);
-        } else {
-            console.log('[Music] Reusing cached pool:', config.instrumentName);
         }
     }
     
@@ -550,7 +739,74 @@ function generateExecutableCode(CDN_BASE, tempo, trackConfigs, trackSchedules, m
             }, chordData.time);
         });
     }
-    
+
+    // Load and schedule audio clips (vocal recordings)
+    console.log('[Music] Loading ' + audioClips.length + ' audio clips...');
+    const audioPlayers = [];
+
+    for (let i = 0; i < audioClips.length; i++) {
+        const clip = audioClips[i];
+        const audioUrl = 'data:audio/wav;base64,' + clip.audioData;
+
+        console.log('[Music] Creating player for clip ' + i + ', audio size: ' + clip.audioData.length + ' chars');
+
+        const player = new Tone.Player({
+            url: audioUrl,
+            volume: Tone.gainToDb(clip.volume)
+        }).toDestination();
+
+        // Wait for player to load (with error handling)
+        try {
+            await new Promise((resolve, reject) => {
+                let loaded = false;
+
+                player.onload = () => {
+                    if (!loaded) {
+                        loaded = true;
+                        console.log('[Music] Audio clip ' + i + ' loaded for track ' + clip.trackId + ' (duration: ' + player.buffer.duration.toFixed(2) + 's)');
+                        resolve(true);
+                    }
+                };
+
+                player.onerror = (error) => {
+                    if (!loaded) {
+                        loaded = true;
+                        console.error('[Music] Failed to load audio clip ' + i + ':', error);
+                        reject(error);
+                    }
+                };
+
+                // Timeout after 10 seconds
+                setTimeout(() => {
+                    if (!loaded) {
+                        loaded = true;
+                        console.error('[Music] Audio clip ' + i + ' load timeout');
+                        reject(new Error('Audio clip load timeout'));
+                    }
+                }, 10000);
+            });
+
+            audioPlayers.push({ player, clip, index: i });
+        } catch (error) {
+            console.error('[Music] Skipping audio clip ' + i + ' due to load error:', error);
+            // Continue without this clip instead of failing completely
+        }
+    }
+
+    console.log('[Music] Successfully loaded ' + audioPlayers.length + ' of ' + audioClips.length + ' audio clips');
+
+    // Schedule all loaded audio clips
+    audioPlayers.forEach(({ player, clip, index }) => {
+        Tone.Transport.schedule((time) => {
+            try {
+                player.start(time);
+                console.log('[Music] Playing audio clip ' + index + ' at ' + clip.start + 's');
+            } catch (error) {
+                console.error('[Music] Error playing audio clip ' + index + ':', error);
+            }
+        }, clip.start);
+    });
+
     Tone.Transport.start();
     console.log('[Music] Playing... (' + duration.toFixed(2) + 's)');
     
