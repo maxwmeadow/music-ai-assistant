@@ -169,6 +169,11 @@ export async function exportAndDownloadAudio(
 /**
  * Calculate duration from DSL code
  * Parses the DSL to find the last note/event time
+ *
+ * @deprecated This function does NOT expand loops and will calculate incorrect
+ * durations for DSL code with loop constructs. Use DSLService.calculateMaxDuration()
+ * from '@/services/dslService' instead, which properly expands loops before calculating.
+ *
  * @param dslCode - DSL code string
  * @returns Estimated duration in seconds
  */

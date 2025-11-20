@@ -6,7 +6,8 @@ import { exportProject, createProjectFile, ProjectFile } from '@/lib/export';
 import { importProject, isValidProjectFile } from '@/lib/import';
 import { downloadMIDI } from '@/lib/midi-export';
 import { importFromMIDI, isValidMIDIFile, getMIDIFileInfo } from '@/lib/midi-import';
-import { exportAndDownloadAudio, calculateDurationFromDSL } from '@/lib/audio-export';
+import { exportAndDownloadAudio } from '@/lib/audio-export';
+import { DSLService } from '@/services/dslService';
 
 interface FileMenuProps {
   // Current app state
@@ -155,8 +156,8 @@ export function FileMenu({
       setIsExporting(true);
       setExportProgress(0);
 
-      // Calculate duration
-      const duration = calculateDurationFromDSL(dslCode);
+      // Calculate duration (with loop expansion)
+      const duration = DSLService.calculateMaxDuration(dslCode) + 2; // Add 2s buffer for reverb/release
       console.log(`[FileMenu] Exporting audio (${duration}s)...`);
 
       await exportAndDownloadAudio(
