@@ -2,6 +2,9 @@ __pycache__/
 *.pyc
 .venv/
 .env
+.env.local
+!.env.production
+!.env.example
 
 node_modules/
 .next/
@@ -16,3 +19,12 @@ npm-debug.log
 *.db
 audio_uploads/
 *.dbCARSON_TODO.md
+
+# Claude Code settings
+.claude/
+
+# Scripts and local files
+nul
+projectcompletion.png
+scripts/apply_fast_correction.py
+scripts/apply_intelligent_correction.py
