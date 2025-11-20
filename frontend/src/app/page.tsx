@@ -17,6 +17,7 @@ import { AudioService } from "@/services/audioService";
 import { DSLService } from "@/services/dslService";
 import { FileMenu } from "@/components/FileMenu";
 import { ProjectFile } from "@/lib/export";
+import { TrackNameModal } from "@/components/TrackNameModal";
 
 export default function Home() {
   const { pushHistory, undo, redo, canUndo, canRedo, currentState: code } = useHistory("// Your generated music code will appear here...");
@@ -57,6 +58,10 @@ export default function Home() {
   const [showMixer, setShowMixer] = useState(false);
   const [showRecorder, setShowRecorder] = useState(false);
   const [recordingMode, setRecordingMode] = useState<'melody' | 'drums' | null>(null);
+
+  // Track name modal state
+  const [showTrackNameModal, setShowTrackNameModal] = useState(false);
+  const [pendingIR, setPendingIR] = useState<any>(null);
 
   // Resizable panels
   const [leftPanelWidth, setLeftPanelWidth] = useState(50); // percentage
@@ -423,6 +428,9 @@ export default function Home() {
     console.log("[DEBUG] Has session_id?", !!result.session_id);
 
     try {
+      // Check if user has existing code
+      const hasExistingCode = code.trim() && code.trim() !== "// Your generated music code will appear here...";
+
       if (result.visualization && result.session_id) {
         console.log("[DEBUG] Opening tuning modal with session:", result.session_id);
         setSessionId(result.session_id);
@@ -430,9 +438,27 @@ export default function Home() {
         setCurrentIR(result.ir);
         setTuningMode(true);
         showToast("Tuning interface ready - adjust parameters to improve detection");
+      } else if (recordingMode === 'drums' && result.visualization) {
+        // Drums with visualization - store IR for after visualization closes
+        console.log("[DEBUG] Drums visualization - storing IR for later");
+        setPendingIR(result.ir);
+        // Visualization modal will be shown by RecorderControls
+        // Track name modal will be shown when visualization closes (via onVisualizationClose)
       } else {
         console.log("[DEBUG] No visualization data, using IR directly");
-        await applyIRAndCompile(result.ir);
+
+        if (hasExistingCode) {
+          // Store IR and show track name modal
+          setPendingIR(result.ir);
+          setShowTrackNameModal(true);
+          setShowRecorder(false);
+          // Keep recordingMode for modal defaults - will be cleared when modal closes
+        } else {
+          // No existing code, just set it directly
+          await applyIRAndCompile(result.ir);
+          setShowRecorder(false);
+          setRecordingMode(null);
+        }
       }
     } catch (error) {
       console.error("Failed to process melody:", error);
@@ -444,11 +470,18 @@ export default function Home() {
     const isDrumsWithVisualization = recordingMode === 'drums' && result.visualization;
     if (!isDrumsWithVisualization) {
       setShowRecorder(false);
-      setRecordingMode(null);
+      // Don't clear recordingMode here if we're showing track name modal
+      if (!result.visualization || result.session_id) {
+        // Only clear if not waiting for track name modal
+        const hasExistingCode = code.trim() && code.trim() !== "// Your generated music code will appear here...";
+        if (!hasExistingCode) {
+          setRecordingMode(null);
+        }
+      }
     }
   };
 
-  const applyIRAndCompile = async (ir: any) => {
+  const applyIRAndCompile = async (ir: any, append: boolean = false, trackName?: string, instrument?: string) => {
     showToast("Converting to DSL...");
 
     try {
@@ -461,13 +494,26 @@ export default function Home() {
       const data = await response.json();
 
       if (data.dsl) {
-        setCode(data.dsl);
+        let finalDSL = data.dsl;
+
+        // If appending, merge with existing DSL
+        if (append && trackName) {
+          try {
+            finalDSL = DSLService.appendTrack(code, data.dsl, trackName, instrument);
+          } catch (error) {
+            console.error("Failed to append track:", error);
+            showToast("Failed to append track");
+            return;
+          }
+        }
+
+        setCode(finalDSL);
         setExecutableCode(data.meta?.executable_code || "");
 
-        const parsedTracks = parseTracksFromDSL(data.dsl);
+        const parsedTracks = parseTracksFromDSL(finalDSL);
         setTracks(parsedTracks);
 
-        showToast("Melody loaded! Click compile & play");
+        showToast(append ? "Track added!" : "Melody loaded! Click compile & play");
       } else {
         showToast("Failed to convert to DSL");
       }
@@ -479,12 +525,57 @@ export default function Home() {
 
   const handleApplyTuning = async (finalIR: any) => {
     setTuningMode(false);
-    await applyIRAndCompile(finalIR);
+
+    // Check if user has existing code - if so, show track name modal
+    const hasExistingCode = code.trim() && code.trim() !== "// Your generated music code will appear here...";
+
+    if (hasExistingCode) {
+      // Store IR and show track name modal
+      setPendingIR(finalIR);
+      setShowTrackNameModal(true);
+    } else {
+      // No existing code, just set it directly
+      await applyIRAndCompile(finalIR);
+    }
   };
 
   const openRecorder = (mode: 'melody' | 'drums') => {
     setRecordingMode(mode);
     setShowRecorder(true);
+  };
+
+  const handleTrackNameConfirm = async (trackName: string, instrument: string) => {
+    setShowTrackNameModal(false);
+    if (pendingIR) {
+      await applyIRAndCompile(pendingIR, true, trackName, instrument);
+      setPendingIR(null);
+    }
+    setRecordingMode(null); // Clear recording mode after modal closes
+  };
+
+  const handleTrackNameCancel = () => {
+    setShowTrackNameModal(false);
+    setPendingIR(null);
+    setRecordingMode(null); // Clear recording mode on cancel
+    showToast("Track import cancelled");
+  };
+
+  const handleVisualizationClose = () => {
+    // Called when drums visualization modal closes
+    // Show track name modal if user has existing code and we have pending IR
+    const hasExistingCode = code.trim() && code.trim() !== "// Your generated music code will appear here...";
+
+    setShowRecorder(false);
+
+    if (hasExistingCode && pendingIR) {
+      // Show track name modal with the pending IR
+      setShowTrackNameModal(true);
+    } else if (pendingIR) {
+      // No existing code, just apply directly
+      applyIRAndCompile(pendingIR);
+      setPendingIR(null);
+      setRecordingMode(null);
+    }
   };
 
   // File operations handlers
@@ -669,6 +760,15 @@ export default function Home() {
         />
       )}
 
+      {/* Track Name Modal */}
+      <TrackNameModal
+        isOpen={showTrackNameModal}
+        defaultTrackName={recordingMode === 'drums' ? 'drums' : 'melody'}
+        defaultInstrument={recordingMode === 'drums' ? 'drums/basic_kit' : 'piano/grand_piano_k'}
+        onConfirm={handleTrackNameConfirm}
+        onCancel={handleTrackNameCancel}
+      />
+
       {/* Toast */}
       {toast && (
         <div className="fixed top-4 right-4 bg-[#2a2a2a] border border-gray-700 text-white px-4 py-3 rounded-lg shadow-xl z-50 animate-fade-in">
@@ -707,7 +807,9 @@ export default function Home() {
               </button>
             </div>
             <RecorderControls
+              mode={recordingMode || 'melody'}
               onMelodyGenerated={handleMelodyGenerated}
+              onVisualizationClose={handleVisualizationClose}
             />
           </div>
         </div>

@@ -194,4 +194,37 @@ export class DSLService {
 
     return trackIds;
   }
+
+  /**
+   * Append a new track to existing DSL code
+   * Preserves tempo and existing tracks
+   */
+  static appendTrack(existingDSL: string, newTrackDSL: string, trackName: string, instrument?: string): string {
+    // Extract the new track block from the new DSL
+    const trackBlocks = this.extractTracks(newTrackDSL);
+    if (trackBlocks.length === 0) {
+      throw new Error('No track found in new DSL');
+    }
+
+    // Take the first track and rename it
+    let newTrack = trackBlocks[0];
+
+    // Replace the track ID with the new name
+    newTrack = newTrack.replace(/track\("([^"]+)"\)/, `track("${trackName}")`);
+
+    // Replace instrument if specified
+    if (instrument) {
+      newTrack = newTrack.replace(/instrument\("([^"]+)"\)/, `instrument("${instrument}")`);
+    }
+
+    // If no existing DSL, just return the new track with tempo
+    if (!existingDSL.trim()) {
+      const tempo = this.getTempo(newTrackDSL);
+      return `tempo(${tempo})\n\n${newTrack}`;
+    }
+
+    // Append to existing DSL (before the last closing brace if it exists, or just at the end)
+    const trimmed = existingDSL.trim();
+    return `${trimmed}\n\n${newTrack}`;
+  }
 }
