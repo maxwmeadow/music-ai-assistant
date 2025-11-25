@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Optional
 
 from .settings import load_settings
-from .schemas import RunBody, RunnerEvalResponse, IR
+from .schemas import RunBody, RunnerEvalResponse, IR, GenerateTrackRequest
 from .runner_client import RunnerClient
 from . import compiler_stub
 from .audio_processor import AudioProcessor
@@ -21,6 +21,7 @@ from .hum2melody_endpoints_v2 import (
     delete_session
 )
 from .job_manager import get_job_manager, JobStatus
+from .arranger_service import get_arranger_service
 import asyncio
 
 USING_DOCKER=True
@@ -97,6 +98,34 @@ runner = RunnerClient(
     inbox_path=settings.runner_inbox_path,
     timeout_s=settings.request_timeout_s
 )
+
+
+# Helper function to offset notes in IR by a given start time
+def offset_ir_notes(ir: dict, start_time: float) -> dict:
+    """
+    Offset all note start times in an IR by the given start_time.
+    This allows placing generated notes at a specific point in the song.
+
+    Args:
+        ir: The IR dictionary containing tracks with notes
+        start_time: Time offset in seconds to add to all note start times
+
+    Returns:
+        Modified IR with offset notes
+    """
+    if start_time == 0.0:
+        return ir  # No offset needed
+
+    if "tracks" in ir:
+        for track in ir["tracks"]:
+            if "notes" in track and track["notes"]:
+                for note in track["notes"]:
+                    note["start"] += start_time
+            if "samples" in track and track["samples"]:
+                for sample in track["samples"]:
+                    sample["start"] += start_time
+
+    return ir
 
 
 def require_ir(ir: IR | None) -> IR:
@@ -197,33 +226,23 @@ def test():
 
 @app.post("/run", response_model=RunnerEvalResponse)
 def run(body: RunBody):
-    print("RUN ENDPOINT CALLED")
-    print(f"Request body: {body}")
-    print(f"Code provided: {body.code is not None}")
-    print(f"IR provided: {body.ir is not None}")
+    print(f"[RUN] code={'yes' if body.code else 'no'}, ir={'yes' if body.ir else 'no'}")
 
     # Allow both code and IR to be provided together
-    # This is needed for vocal tracks where we have DSL for notes and IR for audio
     provided = sum(1 for v in [body.code, body.ir] if v is not None)
     if provided == 0:
         raise HTTPException(status_code=400, detail="Provide at least one of 'code' or 'ir'.")
 
     runner_configured = bool(settings.runner_ingest_url or settings.runner_inbox_path)
-    print(f"Runner configured: {runner_configured}")
 
     try:
         if runner_configured:
-            print("FORWARDING TO RUNNER")
-
             # If both code and IR are provided, merge them
             if body.code is not None and body.ir is not None:
-                print("Processing DSL code + IR data")
                 ir_data = require_ir(body.ir).model_dump()
-                # Add DSL passthrough to IR
                 ir_data["__dsl_passthrough"] = body.code
                 payload = {"ir": ir_data}
             elif body.code is not None:
-                print("Processing DSL code only")
                 payload = {
                     "ir": {
                         "metadata": {"tempo": 120},
@@ -232,21 +251,16 @@ def run(body: RunBody):
                     }
                 }
             else:
-                print("Processing IR data only")
                 payload = {"ir": require_ir(body.ir).model_dump()}
 
-            print(f"Payload to runner: {payload}")
             result = runner.eval(payload)
-            print(f"Runner response: {result}")
             return result
 
     except Exception as e:
-        print(f"Runner error: {e}")
-        print(f"Error type: {type(e)}")
+        print(f"[RUN] ❌ Runner error: {e}")
         raise HTTPException(status_code=502, detail=f"Runner error: {e}")
 
     # Fallback
-    print("Using local fallback")
     if body.code:
         return RunnerEvalResponse(dsl=body.code, meta={"source": "echo"})
     else:
@@ -264,14 +278,15 @@ This is just the hum2melody endpoint - replace only this function in your main.p
 async def hum_to_melody(
         audio: UploadFile = File(...),
         save_training_data: bool = Form(True),
-        instrument: str = Form("piano/grand_piano_k"),
+        instrument: str = Form("piano/steinway_grand"),
         onset_high: float = Form(0.30),
         onset_low: float = Form(0.10),
         offset_high: float = Form(0.30),
         offset_low: float = Form(0.10),
         min_confidence: float = Form(0.25),
         return_visualization: bool = Form(False),  # Default False for production performance
-        async_mode: bool = Form(False)  # New: Enable async processing for long requests
+        async_mode: bool = Form(False),  # Enable async processing for long requests
+        start_time: float = Form(0.0)  # Time offset in song for placing notes
 ):
     """
     Enhanced hum2melody with interactive tuning support.
@@ -328,6 +343,10 @@ async def hum_to_melody(
                 else:
                     result_data = result
 
+                # Apply start_time offset if provided
+                if start_time > 0.0 and 'ir' in result_data:
+                    result_data['ir'] = offset_ir_notes(result_data['ir'], start_time)
+
                 # Store result
                 job_manager.set_result(job_id, result_data)
 
@@ -347,11 +366,28 @@ async def hum_to_melody(
         }, status_code=202)
     else:
         # Synchronous processing (original behavior)
-        return await hum_to_melody_v2(
+        result = await hum_to_melody_v2(
             model_server, audio, save_training_data, instrument,
             onset_high, onset_low, offset_high, offset_low,
             min_confidence, return_visualization
         )
+
+        # Apply start_time offset if provided
+        if start_time > 0.0:
+            # Extract result content
+            if hasattr(result, 'body'):
+                import json
+                result_data = json.loads(result.body.decode())
+            else:
+                result_data = result
+
+            # Apply offset and return
+            if 'ir' in result_data:
+                result_data['ir'] = offset_ir_notes(result_data['ir'], start_time)
+
+            return JSONResponse(content=result_data)
+
+        return result
 
 
 # Original implementation kept as backup (can be removed later)
@@ -359,7 +395,7 @@ async def hum_to_melody(
 async def hum_to_melody_legacy(
         audio: UploadFile = File(...),
         save_training_data: bool = Form(True),
-        instrument: str = Form("piano/grand_piano_k")
+        instrument: str = Form("piano/steinway_grand")
 ):
     print("[HUM2MELODY] ========================================")
     print("[HUM2MELODY] Endpoint called")
@@ -491,7 +527,8 @@ async def hum_to_melody_legacy(
 async def beatbox_to_drums(
     audio: UploadFile = File(...),
     save_training_data: bool = Form(True),
-    return_visualization: bool = Form(False)
+    return_visualization: bool = Form(False),
+    start_time: float = Form(0.0)  # Time offset in song for placing drum hits
 ):
     """
     Process beatbox audio and return drum pattern in IR format.
@@ -536,7 +573,13 @@ async def beatbox_to_drums(
             },
             tracks=[drums_track]
         )
-        
+
+        # Apply start_time offset if provided
+        if start_time > 0.0:
+            ir_dict = ir.model_dump()
+            ir_dict = offset_ir_notes(ir_dict, start_time)
+            ir = IR(**ir_dict)
+
         # Save to database if requested
         audio_id = None
         if save_training_data:
@@ -584,52 +627,58 @@ async def beatbox_to_drums(
 
 
 @app.post("/arrange")
-async def arrange_track(body: dict):
+async def arrange_track(body: GenerateTrackRequest):
     """
-    Take existing IR and add accompanying tracks (bass, chords, drums).
-    
+    Generate a complementary track using LLM-based arranger.
+
     Request body should contain:
     {
-        "ir": <existing IR object>,
-        "style": "pop" | "jazz" | "electronic" (optional)
+        "dsl_code": <current DSL code>,
+        "track_type": "bass" | "chords" | "pad" | "melody" | "counterMelody" | "arpeggio" | "drums",
+        "genre": "pop" | "jazz" | "electronic" | etc.,
+        "custom_request": "optional additional instructions"
     }
-    
+
     Returns:
-        Enhanced IR with additional tracks
+        Generated DSL code for the new track
     """
-    print("[ARRANGE] Endpoint called")
-    
+    print("[ARRANGE] LLM-based track generation endpoint called")
+
     try:
-        # Parse input IR
-        if "ir" not in body:
-            raise HTTPException(status_code=400, detail="Missing 'ir' in request body")
-        
-        existing_ir = IR(**body["ir"])
-        style = body.get("style", "pop")
-        
-        print(f"Arranging {len(existing_ir.tracks)} existing track(s) in {style} style")
-        
-        # Get arrangement from model
-        enhanced_ir = await model_server.arrange_track(existing_ir, style=style)
-        
-        print(f"Generated {len(enhanced_ir.tracks)} total tracks")
-        
+        print(f"Generating {body.track_type} track in {body.genre} style")
+        if body.custom_request:
+            print(f"Custom request: {body.custom_request}")
+
+        # Get arranger service
+        arranger = get_arranger_service()
+
+        # Generate the track
+        generated_dsl = arranger.generate_arrangement(
+            current_dsl=body.dsl_code,
+            track_type=body.track_type,
+            genre=body.genre,
+            custom_request=body.custom_request,
+            creativity=body.creativity,
+            complexity=body.complexity
+        )
+
+        print(f"Successfully generated {body.track_type} track")
+
         return JSONResponse(content={
             "status": "success",
-            "ir": enhanced_ir.model_dump(),
+            "generated_dsl": generated_dsl,
             "metadata": {
-                "original_tracks": len(existing_ir.tracks),
-                "total_tracks": len(enhanced_ir.tracks),
-                "added_tracks": len(enhanced_ir.tracks) - len(existing_ir.tracks),
-                "style": style
+                "track_type": body.track_type,
+                "genre": body.genre,
+                "has_custom_request": body.custom_request is not None
             }
         })
-        
+
     except Exception as e:
         print(f"Error in arrange: {e}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Error arranging track: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error generating track: {str(e)}")
 
 
 @app.post("/feedback")

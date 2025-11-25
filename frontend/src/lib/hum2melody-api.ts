@@ -97,7 +97,7 @@ export async function uploadWithVisualization(
 ): Promise<UploadResponse | { status: 'accepted'; job_id: string; message: string }> {
   const formData = new FormData();
   formData.append('audio', audioBlob, 'recording.wav');
-  formData.append('instrument', options.instrument || 'piano/grand_piano_k');
+  formData.append('instrument', options.instrument || 'piano/steinway_grand');
   formData.append('save_training_data', String(options.saveTrainingData !== false));
   // Default to false in production for better performance
   formData.append('return_visualization', String(options.returnVisualization === true));

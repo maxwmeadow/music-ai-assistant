@@ -30,6 +30,7 @@ services:
       - REQUEST_TIMEOUT_S=3
       - PYTHONPATH=/app
       - LAZY_LOAD_MODELS=true
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     volumes:
       - ./backend:/app/backend
     depends_on:

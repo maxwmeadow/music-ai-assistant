@@ -67,9 +67,33 @@ export default function DetectionTuner({
     }
   };
 
-  // Apply and close
+  // Apply and close - reconstruct IR from current visualization segments
   const handleApply = () => {
-    onApply(currentIR, visualization.segments);
+    // Reconstruct IR from current visualization segments
+    // This ensures we use the segments shown in the UI, not the stale model inference
+    const reconstructedIR = {
+      ...currentIR,
+      tracks: currentIR.tracks.map((track: any) => {
+        // Only update tracks with notes (melody), not drum samples
+        if (track.notes !== undefined && track.notes !== null) {
+          const notes = visualization.segments.map((seg: NoteSegment) => ({
+            pitch: seg.pitch,
+            start: seg.start,
+            duration: seg.duration,
+            velocity: seg.confidence // Use confidence as velocity
+          }));
+
+          return {
+            ...track,
+            notes
+          };
+        }
+        return track;
+      })
+    };
+
+    console.log(`[DetectionTuner] Applying IR with ${visualization.segments.length} notes from visualization`);
+    onApply(reconstructedIR, visualization.segments);
   };
 
   const { segments, waveform, onsets, offsets } = visualization;

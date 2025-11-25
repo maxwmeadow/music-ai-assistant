@@ -1,11 +1,11 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect, memo } from "react";
 import Editor from "@monaco-editor/react";
 import type * as Monaco from 'monaco-editor';
 import { getInstrumentsByCategory, type Instrument } from "@/lib/instrumentCatalog";
 
-export function CodeEditor({
+export const CodeEditor = memo(function CodeEditor({
                                value,
                                onChange,
                            }: {
@@ -274,4 +274,4 @@ export function CodeEditor({
             )}
         </div>
     );
-}
+});

@@ -18,6 +18,8 @@ import { DSLService } from "@/services/dslService";
 import { FileMenu } from "@/components/FileMenu";
 import { ProjectFile } from "@/lib/export";
 import { TrackNameModal } from "@/components/TrackNameModal";
+import ArrangerModal, { ArrangementConfig } from "@/components/ArrangerModal";
+import { toast, Toaster } from "sonner";
 
 export default function Home() {
   const { pushHistory, undo, redo, canUndo, canRedo, currentState: code } = useHistory("// Your generated music code will appear here...");
@@ -34,7 +36,6 @@ export default function Home() {
   const [loadingRun, setLoadingRun] = useState(false);
   const [loadingPlay, setLoadingPlay] = useState(false);
   const [executableCode, setExecutableCode] = useState<string>("");
-  const [toast, setToast] = useState<string | null>(null);
   const [tracks, setTracks] = useState<ParsedTrack[]>([]);
   const [trackVolumes, setTrackVolumes] = useState<Record<string, number>>({});
   const [isPlaying, setIsPlaying] = useState(false);
@@ -63,13 +64,15 @@ export default function Home() {
   const [showTrackNameModal, setShowTrackNameModal] = useState(false);
   const [pendingIR, setPendingIR] = useState<any>(null);
 
+  // Arranger modal state
+  const [showArrangerModal, setShowArrangerModal] = useState(false);
+
   // Resizable panels
   const [leftPanelWidth, setLeftPanelWidth] = useState(50); // percentage
   const [isResizing, setIsResizing] = useState(false);
 
   const showToast = (message: string) => {
-    setToast(message);
-    setTimeout(() => setToast(null), 3000);
+    toast(message);
   };
 
   const calculateMaxDuration = () => DSLService.calculateMaxDuration(code);
@@ -388,16 +391,33 @@ export default function Home() {
     // When loop is enabled, no auto-stop (plays indefinitely)
   }, [loopEnabled]);
 
-  // Poll transport time continuously
+  // Update transport time using requestAnimationFrame (smoother, less CPU)
   useEffect(() => {
-    const interval = setInterval(() => {
+    if (!isPlaying) return;
+
+    let animationFrameId: number;
+    let lastUpdateTime = 0;
+    const UPDATE_THRESHOLD = 0.05; // Only update state if time changed by 50ms
+
+    const updateTime = () => {
       const state = AudioService.getTransportState();
       if (state) {
-        setCurrentTime(state.seconds);
+        // Only update state if time changed significantly to reduce re-renders
+        if (Math.abs(state.seconds - lastUpdateTime) >= UPDATE_THRESHOLD) {
+          setCurrentTime(state.seconds);
+          lastUpdateTime = state.seconds;
+        }
       }
-    }, isPlaying ? 50 : 100);
+      animationFrameId = requestAnimationFrame(updateTime);
+    };
 
-    return () => clearInterval(interval);
+    animationFrameId = requestAnimationFrame(updateTime);
+
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+    };
   }, [isPlaying]);
 
   // Intercept console.log to detect when samples are loaded
@@ -617,6 +637,41 @@ export default function Home() {
     }
   };
 
+  // Handle arranger generation
+  const handleArrangerGenerate = async (config: ArrangementConfig) => {
+    try {
+      showToast(`Generating ${config.trackType} track...`);
+
+      // Call backend LLM arranger
+      const response = await api("/arrange", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dsl_code: code,
+          track_type: config.trackType,
+          genre: config.genre,
+          custom_request: config.customRequest || null,
+          creativity: config.creativity ?? 0.7,
+          complexity: config.complexity || "medium"
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.status === "success" && data.generated_dsl) {
+        // Insert the generated track into the editor
+        // Add a newline before the generated track for formatting
+        const newCode = code + "\n\n" + data.generated_dsl;
+        setCode(newCode);
+        showToast(`${config.trackType} track added!`);
+      } else {
+        showToast('Generation failed: No DSL returned');
+      }
+    } catch (error) {
+      console.error('Failed to generate arrangement:', error);
+      showToast(`Generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
 
   // Handle resize drag
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -658,19 +713,31 @@ export default function Home() {
         return;
       }
 
-      // Check if Monaco editor is focused (don't trigger space for play/pause while typing in editor)
-      if (target.classList.contains('monaco-editor') ||
+      // Check if Monaco editor is focused - if so, skip ALL our shortcuts to allow Monaco's native behavior
+      const isMonacoFocused = target.classList.contains('monaco-editor') ||
           target.closest('.monaco-editor') ||
           target.classList.contains('view-line') ||
-          target.classList.contains('inputarea')) {
-        // Allow space to work normally in Monaco editor
-        if (e.key === ' ') {
-          return;
-        }
-      }
+          target.classList.contains('inputarea') ||
+          target.getAttribute('data-mode-id') !== null;
 
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
+
+      // If Monaco is focused, only allow our non-conflicting shortcuts (not Ctrl+Z, Ctrl+C, Ctrl+V, etc.)
+      if (isMonacoFocused) {
+        // Allow space to work normally in Monaco
+        if (e.key === ' ') {
+          return;
+        }
+        // Block undo/redo shortcuts - let Monaco handle them
+        if (ctrlOrCmd && (e.key === 'z' || e.key === 'y')) {
+          return;
+        }
+        // Allow all other keys (including Ctrl+C, Ctrl+V, Ctrl+X for copy/paste/cut)
+        if (ctrlOrCmd && (e.key === 'c' || e.key === 'v' || e.key === 'x' || e.key === 'a')) {
+          return;
+        }
+      }
 
       // File operations
       // Save Project: Ctrl+S
@@ -754,8 +821,8 @@ export default function Home() {
           onApply={handleApplyTuning}
           onCancel={() => {
             setTuningMode(false);
-            showToast("Tuning cancelled - using initial detection");
-            applyIRAndCompile(currentIR);
+            showToast("Detection cancelled");
+            // Don't apply anything when user cancels!
           }}
         />
       )}
@@ -764,17 +831,37 @@ export default function Home() {
       <TrackNameModal
         isOpen={showTrackNameModal}
         defaultTrackName={recordingMode === 'drums' ? 'drums' : 'melody'}
-        defaultInstrument={recordingMode === 'drums' ? 'drums/basic_kit' : 'piano/grand_piano_k'}
+        defaultInstrument={recordingMode === 'drums' ? 'drums/bedroom_drums' : 'piano/steinway_grand'}
         onConfirm={handleTrackNameConfirm}
         onCancel={handleTrackNameCancel}
       />
 
+      {/* Arranger Modal */}
+      <ArrangerModal
+        isOpen={showArrangerModal}
+        onClose={() => setShowArrangerModal(false)}
+        onGenerate={handleArrangerGenerate}
+      />
+
       {/* Toast */}
-      {toast && (
-        <div className="fixed top-4 right-4 bg-[#2a2a2a] border border-gray-700 text-white px-4 py-3 rounded-lg shadow-xl z-50 animate-fade-in">
-          {toast}
-        </div>
-      )}
+      <Toaster
+        position="top-right"
+        theme="dark"
+        richColors
+        expand={false}
+        toastOptions={{
+          style: {
+            background: '#2a2a2a',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            color: '#fff',
+            padding: '12px 16px',
+            borderRadius: '8px',
+            fontSize: '14px',
+            maxWidth: 'fit-content',
+            minWidth: '200px',
+          },
+        }}
+      />
 
       {/* Recorder Modal */}
       {showRecorder && (
@@ -862,9 +949,10 @@ export default function Home() {
             Beatbox2Drums
           </button>
           <button
-            disabled
-            className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-gray-400 rounded-lg text-sm font-medium cursor-not-allowed"
-            title="Coming soon"
+            onClick={() => setShowArrangerModal(true)}
+            disabled={!code || code.trim() === "// Your generated music code will appear here..."}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 disabled:text-gray-400 text-white rounded-lg text-sm font-medium transition-colors disabled:cursor-not-allowed"
+            title={!code || code.trim() === "// Your generated music code will appear here..." ? "Add some music first" : "AI Arranger"}
           >
             <Sparkles className="w-4 h-4" />
             Arranger
@@ -1034,6 +1122,11 @@ export default function Home() {
                   setLoopStart(start);
                   setLoopEnd(end);
                 }}
+                onPlaybackStart={playAudio}
+                onPlaybackStop={stopAudio}
+                onMelodyGenerated={handleMelodyGenerated}
+                onCompile={sendToRunner}
+                executableCode={executableCode}
               />
             ) : (
               <div className="h-full flex items-center justify-center text-gray-500">

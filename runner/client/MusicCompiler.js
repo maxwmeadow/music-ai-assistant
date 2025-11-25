@@ -87,9 +87,12 @@ class MusicCompiler {
                     const [, note, start, duration, velocity] =
                         noteMatch.match(/note\("([^"]+)",\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/);
 
+                    // Convert drum names to MIDI notes if needed
+                    const resolvedNote = this._drumNameToNote(note);
+
                     this.scheduler.scheduleNote(
                         instrument,
-                        note,
+                        resolvedNote,
                         parseFloat(duration),
                         parseFloat(start),
                         parseFloat(velocity)
@@ -401,6 +404,40 @@ class MusicCompiler {
             ride: 'D#3'
         };
         return drumMap[sampleName] || 'C2';
+    }
+
+    /**
+     * Convert drum name to MIDI note, or return as-is if already a MIDI note
+     * Allows using "kick", "snare", "hihat" instead of "C2", "D2", "F#2" in DSL
+     */
+    _drumNameToNote(note) {
+        // Complete drum mapping matching server.js
+        const drumMap = {
+            kick: 'C2',
+            snare: 'D2',
+            snare_rimshot: 'E2',
+            snare_buzz: 'D#2',
+            hihat_closed: 'F#2',
+            hihat_open: 'A#2',
+            hihat_pedal: 'G#2',
+            tom: 'G2',
+            crash: 'C#3',
+            ride: 'D#3',
+            // Aliases for convenience
+            hihat: 'F#2',  // Default to closed
+            'hihat-closed': 'F#2',
+            'hihat-open': 'A#2',
+            'hihat-pedal': 'G#2'
+        };
+
+        // If it's a drum name, convert it
+        const lowerNote = note.toLowerCase();
+        if (drumMap[lowerNote]) {
+            return drumMap[lowerNote];
+        }
+
+        // Otherwise return as-is (already a MIDI note like "C2")
+        return note;
     }
 
     /**

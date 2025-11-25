@@ -1,14 +1,4 @@
-"""
-Enhanced Hum2Melody Endpoints with Interactive Tuning
-
-New endpoints for interactive detection tuning:
-- POST /hum2melody - Enhanced to return session_id + visualization data
-- GET /hum2melody/segments/{session_id} - Get current segments
-- POST /hum2melody/reprocess - Reprocess with new parameters or manual segments
-- DELETE /hum2melody/session/{session_id} - Clean up session
-
-This should REPLACE the existing /hum2melody endpoint in main.py
-"""
+"""Enhanced Hum2Melody Endpoints with Interactive Tuning"""
 
 from fastapi import UploadFile, File, Form, HTTPException
 from fastapi.responses import JSONResponse
@@ -24,21 +14,17 @@ from backend.audio_processor import AudioProcessor
 from backend.model_server import ModelServer
 
 
-# Initialize dependencies (these should be passed in or imported properly)
+# Initialize dependencies
 session_manager = get_session_manager()
 db = TrainingDataDB()
 audio_processor = AudioProcessor()
 
 
-# ============================================================
-# Enhanced /hum2melody endpoint
-# ============================================================
-
 async def hum_to_melody_v2(
     model_server: ModelServer,
     audio: UploadFile = File(...),
     save_training_data: bool = Form(True),
-    instrument: str = Form("piano/grand_piano_k"),
+    instrument: str = Form("piano/steinway_grand"),
     onset_high: float = Form(0.30),
     onset_low: float = Form(0.10),
     offset_high: float = Form(0.30),
@@ -46,36 +32,18 @@ async def hum_to_melody_v2(
     min_confidence: float = Form(0.25),
     return_visualization: bool = Form(True)
 ):
-    """
-    Enhanced hum2melody endpoint with session management and visualization data.
-
-    Args:
-        audio: Audio file upload
-        save_training_data: Save to database for training
-        instrument: Instrument to use for playback
-        onset_high: Onset detection high threshold
-        onset_low: Onset detection low threshold
-        offset_high: Offset detection high threshold
-        offset_low: Offset detection low threshold
-        min_confidence: Minimum confidence to keep notes
-        return_visualization: Whether to return visualization data
-
-    Returns:
-        JSON with IR, session_id, and optional visualization data
-    """
-    print("[HUM2MELODY_V2] ========================================")
-    print("[HUM2MELODY_V2] Enhanced endpoint called")
-    print(f"[HUM2MELODY_V2]   Filename: {audio.filename}")
-    print(f"[HUM2MELODY_V2]   Instrument: {instrument}")
-    print(f"[HUM2MELODY_V2]   Parameters: onset_high={onset_high}, onset_low={onset_low}")
-    print(f"[HUM2MELODY_V2]                 offset_high={offset_high}, offset_low={offset_low}")
-    print(f"[HUM2MELODY_V2]                 min_confidence={min_confidence}")
-    print(f"[HUM2MELODY_V2]   Return visualization: {return_visualization}")
+    """Enhanced hum2melody endpoint with session management and visualization data."""
+    print(f"[HUM2MELODY_V2] {audio.filename} | onset={onset_high}/{onset_low} offset={offset_high}/{offset_low} conf={min_confidence}")
 
     try:
         # Read audio bytes
         audio_bytes = await audio.read()
-        print(f"[HUM2MELODY_V2]   Read {len(audio_bytes)} bytes")
+
+        # DEBUG: Log audio info
+        print(f"  Audio bytes received: {len(audio_bytes)} bytes")
+        print(f"  Audio filename: {audio.filename}")
+        print(f"  Audio content_type: {audio.content_type}")
+        print(f"  First 44 bytes (WAV header): {audio_bytes[:44].hex() if len(audio_bytes) >= 44 else 'too short'}")
 
         # Create session
         session_metadata = {
@@ -93,27 +61,44 @@ async def hum_to_melody_v2(
             metadata=session_metadata
         )
 
-        print(f"[HUM2MELODY_V2]   Created session: {session_id}")
-
         # Get audio path
         audio_path = session_manager.get_audio_path(session_id)
 
-        # Process audio for features
+        # Process audio for features (get duration)
         audio_features = audio_processor.preprocess_for_hum2melody(audio_bytes)
-        audio_features["audio_bytes"] = audio_bytes
-        audio_features["audio_path"] = audio_path
-        audio_features["instrument"] = instrument
+        duration = audio_features['duration']
 
-        # Get model prediction
-        melody_track = await model_server.predict_melody(audio_features)
+        # Use ONE detection system: amplitude onset detection + pitch model
+        # This is the same detection used in the DetectionTuner visualization
+        print(f"  Running detection with amplitude onset detector...")
+        viz_data = extract_segments_with_detection(
+            audio_path,
+            onset_high=onset_high,
+            onset_low=onset_low,
+            offset_high=offset_high,
+            offset_low=offset_low,
+            min_confidence=min_confidence
+        )
 
-        if not melody_track.notes:
-            print("[HUM2MELODY_V2] ⚠️  No notes predicted, forcing fallback")
-            audio_features.pop("audio_bytes", None)
-            audio_features.pop("audio_path", None)
-            melody_track = await model_server.predict_melody(audio_features)
+        print(f"  Detected {len(viz_data['segments'])} segments")
 
-        print(f"[HUM2MELODY_V2]   Generated {len(melody_track.notes)} notes")
+        # Create track from segments
+        notes = []
+        for seg in viz_data['segments']:
+            notes.append(Note(
+                pitch=seg['pitch'],
+                start=seg['start'],
+                duration=seg['duration'],
+                velocity=seg['confidence']  # Use confidence as velocity
+            ))
+
+        melody_track = Track(
+            id='melody',
+            instrument=instrument,
+            notes=notes
+        )
+
+        print(f"  ✅ Created track with {len(notes)} notes")
 
         # Create IR
         ir = IR(
@@ -121,7 +106,7 @@ async def hum_to_melody_v2(
                 "tempo": 120,
                 "key": "Am",
                 "time_signature": "4/4",
-                "duration": audio_features['duration']
+                "duration": duration
             },
             tracks=[melody_track]
         )
@@ -133,8 +118,8 @@ async def hum_to_melody_v2(
                 file_path=audio_path,
                 model_type="hum2melody",
                 file_format=Path(audio.filename or "recording.wav").suffix.lstrip('.') or "wav",
-                sample_rate=audio_features['sample_rate'],
-                duration=audio_features['duration'],
+                sample_rate=16000,
+                duration=duration,
                 metadata={'session_id': session_id, **session_metadata}
             )
             db.save_prediction(
@@ -142,17 +127,26 @@ async def hum_to_melody_v2(
                 model_type="hum2melody",
                 prediction=melody_track.model_dump()
             )
-            print(f"[HUM2MELODY_V2]   Saved to database: {audio_id}")
 
-        # Build response
+        # Get waveform data for visualization
+        waveform_data = session_manager.get_waveform_data(session_id, max_samples=2000)
+
+        # Build response (always include visualization since we already computed it)
         response_data = {
             "status": "success",
             "ir": ir.model_dump(),
             "session_id": session_id,
             "audio_id": audio_id,
+            "visualization": {
+                "segments": viz_data['segments'],
+                "onsets": viz_data['onsets'],
+                "offsets": viz_data['offsets'],
+                "waveform": waveform_data,
+                "parameters": viz_data['parameters']
+            },
             "metadata": {
-                "duration": audio_features['duration'],
-                "num_notes": len(melody_track.notes),
+                "duration": duration,
+                "num_notes": len(notes),
                 "instrument": instrument,
                 "parameters": {
                     "onset_high": onset_high,
@@ -164,54 +158,6 @@ async def hum_to_melody_v2(
             }
         }
 
-        # Add visualization data if requested (with timeout protection)
-        if return_visualization:
-            print("[HUM2MELODY_V2]   Extracting visualization data...")
-            try:
-                import asyncio
-
-                def extract_viz():
-                    """Helper to extract viz data in thread"""
-                    viz = extract_segments_with_detection(
-                        audio_path,
-                        onset_high=onset_high,
-                        onset_low=onset_low,
-                        offset_high=offset_high,
-                        offset_low=offset_low,
-                        min_confidence=min_confidence
-                    )
-                    wave = session_manager.get_waveform_data(session_id, max_samples=2000)
-                    return (viz, wave)
-
-                try:
-                    # Run with 5-second timeout to prevent blocking
-                    result = await asyncio.wait_for(
-                        asyncio.to_thread(extract_viz),
-                        timeout=5.0
-                    )
-
-                    viz_data, waveform_data = result
-
-                    response_data["visualization"] = {
-                        "segments": viz_data['segments'],
-                        "onsets": viz_data['onsets'],
-                        "offsets": viz_data['offsets'],
-                        "waveform": waveform_data,
-                        "parameters": viz_data['parameters']
-                    }
-
-                    print(f"[HUM2MELODY_V2]   Added visualization data: {len(viz_data['segments'])} segments")
-                except asyncio.TimeoutError:
-                    print(f"[HUM2MELODY_V2]   ⚠️  Visualization extraction timed out (>5s)")
-                    response_data["visualization"] = None
-
-            except Exception as e:
-                print(f"[HUM2MELODY_V2]   ⚠️  Failed to extract visualization: {e}")
-                import traceback
-                traceback.print_exc()
-                response_data["visualization"] = None
-
-        print("[HUM2MELODY_V2] ========================================")
         return JSONResponse(content=response_data)
 
     except Exception as e:
@@ -221,18 +167,8 @@ async def hum_to_melody_v2(
         raise HTTPException(status_code=500, detail=f"Error processing audio: {str(e)}")
 
 
-# ============================================================
-# Get segments for a session
-# ============================================================
-
 async def get_segments(session_id: str):
-    """
-    Get current segment detection for a session.
-
-    Returns segment data with current parameters.
-    """
-    print(f"[GET_SEGMENTS] Session: {session_id}")
-
+    """Get current segment detection for a session."""
     session = session_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
@@ -266,65 +202,39 @@ async def get_segments(session_id: str):
     })
 
 
-# ============================================================
-# Reprocess with new parameters
-# ============================================================
-
 async def reprocess_segments(
     model_server: ModelServer,
     session_id: str = Form(...),
-    manual_onsets: str = Form(...),  # Required: JSON array of onset times
-    manual_offsets: str = Form(...)  # Required: JSON array of offset times
+    manual_onsets: str = Form(...),
+    manual_offsets: str = Form(...)
 ):
-    """
-    Reprocess audio with user-provided onset/offset markers.
-
-    Args:
-        session_id: Session identifier
-        manual_onsets: JSON array of onset times (required)
-        manual_offsets: JSON array of offset times (required)
-
-    Returns:
-        New IR with pitch predictions for the provided segments
-    """
-    print("[REPROCESS] ========================================")
+    """Reprocess audio with user-provided onset/offset markers."""
     print(f"[REPROCESS] Session: {session_id}")
-    print(f"[REPROCESS] Manual onsets: {manual_onsets[:100]}")
-    print(f"[REPROCESS] Manual offsets: {manual_offsets[:100]}")
 
     session = session_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
 
     audio_path = session['audio_path']
-    instrument = session['metadata'].get('instrument', 'piano/grand_piano_k')
+    instrument = session['metadata'].get('instrument', 'piano/steinway_grand')
 
     try:
         # Parse markers
         import json
-
-        print(f"[REPROCESS] Raw manual_onsets: {repr(manual_onsets)[:200]}")
-        print(f"[REPROCESS] Raw manual_offsets: {repr(manual_offsets)[:200]}")
-
         onset_list = json.loads(manual_onsets)
         offset_list = json.loads(manual_offsets)
 
-        print(f"[REPROCESS] Parsed {len(onset_list)} onsets: {onset_list}")
-        print(f"[REPROCESS] Parsed {len(offset_list)} offsets: {offset_list}")
+        print(f"  Reprocessing with {len(onset_list)} onsets, {len(offset_list)} offsets")
 
         if len(onset_list) == 0 or len(offset_list) == 0:
             raise HTTPException(status_code=400, detail="Must provide at least one onset and one offset")
 
-        # Extract segments with user's markers (no automatic detection)
+        # Extract segments with user's markers
         viz_data = extract_segments_with_detection(
             audio_path,
             manual_onsets=onset_list,
             manual_offsets=offset_list
         )
-
-        print(f"[REPROCESS] Extraction returned {len(viz_data['segments'])} segments")
-        for i, seg in enumerate(viz_data['segments']):
-            print(f"  Segment {i}: {seg['start']:.3f}s - {seg['end']:.3f}s, pitch={seg['pitch']}, conf={seg['confidence']:.3f}")
 
         # Convert segments to Notes
         notes = []
@@ -336,7 +246,7 @@ async def reprocess_segments(
                 velocity=int(seg['confidence'] * 127)
             ))
 
-        print(f"[REPROCESS]   Generated {len(notes)} notes")
+        print(f"  Generated {len(notes)} notes from user markers")
 
         # Create track
         melody_track = Track(
@@ -364,8 +274,6 @@ async def reprocess_segments(
         # Get waveform
         waveform_data = session_manager.get_waveform_data(session_id)
 
-        print("[REPROCESS] ========================================")
-
         return JSONResponse(content={
             "status": "success",
             "ir": ir.model_dump(),
@@ -390,14 +298,8 @@ async def reprocess_segments(
         raise HTTPException(status_code=500, detail=f"Error reprocessing: {str(e)}")
 
 
-# ============================================================
-# Delete session
-# ============================================================
-
 async def delete_session(session_id: str):
     """Delete a session and clean up files."""
-    print(f"[DELETE_SESSION] Session: {session_id}")
-
     success = session_manager.delete_session(session_id)
 
     if success:

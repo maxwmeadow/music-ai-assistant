@@ -20,9 +20,49 @@ interface PianoRollProps {
 }
 
 const MIDI_MIN = 36; // C2
-const MIDI_MAX = 84; // C6
+const MIDI_MAX = 108; // C8 (full 88-key piano range)
 const NOTE_HEIGHT = 12; // pixels per semitone
 const PIANO_WIDTH = 60; // width of piano keys
+
+// Pre-calculated gain compensation map (in dB)
+// Target level: -12dB peak
+const INSTRUMENT_GAINS: Record<string, number> = {
+  // Pianos
+  'piano/steinway_grand': 0,
+  'piano/bechstein_1911_upright': 0,
+  'piano/fender_rhodes': 0,
+  'piano/experience_ny_steinway': 0,
+  // Harpsichords
+  'harpsichord/harpsichord_english': -10,
+  'harpsichord/harpsichord_flemish': -10,
+  'harpsichord/harpsichord_french': -10,
+  'harpsichord/harpsichord_italian': -15,
+  'harpsichord/harpsichord_unk': -10,
+  // Guitars
+  'guitar/rjs_guitar_palm_muted_softly_strings': -5,
+  'guitar/rjs_guitar_palm_muted_strings': -6,
+  'synth/lead/ld_the_stack_guitar_chug': 0,
+  'synth/lead/ld_the_stack_guitar': -1,
+  'guitar/rjs_guitar_new_strings': 0,
+  'guitar/rjs_guitar_old_strings': 4,
+  // Bass
+  'bass/funky_fingers': -10,
+  'bass/low_fat_bass': -5,
+  'bass/jp8000_sawbass': 2,
+  'bass/jp8000_tribass': 2,
+  // Strings
+  'strings/nfo_chamber_strings_longs': 0,
+  'strings/nfo_iso_celli_swells': 0,
+  'strings/nfo_iso_viola_swells': 0,
+  'strings/nfo_iso_violin_swells': 0,
+  // Brass
+  'brass/nfo_iso_brass_swells': 0,
+  // Winds
+  'winds/flute_violin': 0,
+  'winds/subtle_clarinet': 0,
+  'winds/decent_oboe': 0,
+  'winds/tenor_saxophone': 0,
+};
 
 
 export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime }: PianoRollProps) {
@@ -214,6 +254,17 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
   const [availableNotes, setAvailableNotes] = useState<Set<number>>(new Set());
   const samplerRef = useRef<any>(null);
 
+  // Parse instrument from DSL code directly (not from compiled track)
+  const getInstrumentFromDSL = (): string | null => {
+    const trackMatch = dslCode.match(new RegExp(`track\\s*\\(\\s*["']${track.id}["']\\s*\\)\\s*\\{([\\s\\S]*?)\\}`, 'm'));
+    if (!trackMatch) return null;
+    const trackContent = trackMatch[1];
+    const instrumentMatch = trackContent.match(/instrument\s*\(\s*["']([^"']+)["']\s*\)/);
+    return instrumentMatch ? instrumentMatch[1] : null;
+  };
+
+  const dslInstrument = getInstrumentFromDSL();
+
   // Load instrument sampler for preview
   useEffect(() => {
     loadInstrumentPreview();
@@ -222,10 +273,11 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
         samplerRef.current.dispose();
       }
     };
-  }, [track.instrument]);
+  }, [dslInstrument]);
 
   const loadInstrumentPreview = async () => {
-    if (!track.instrument) return;
+    const instrumentToLoad = dslInstrument || track.instrument;
+    if (!instrumentToLoad) return;
 
     try {
       const Tone = await import('tone');
@@ -233,7 +285,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
       const CDN_BASE = 'https://pub-e7b8ae5d5dcb4e23b0bf02e7b966c2f7.r2.dev';
 
       // Fetch instrument mapping
-      const mappingUrl = `${CDN_BASE}/samples/${track.instrument}/mapping.json`;
+      const mappingUrl = `${CDN_BASE}/samples/${instrumentToLoad}/mapping.json`;
       const response = await fetch(mappingUrl, { cache: 'force-cache' });
 
       if (!response.ok) {
@@ -242,7 +294,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
       }
 
       const mapping = await response.json();
-      const { urls, baseUrl } = buildSamplerUrls(mapping, track.instrument, CDN_BASE);
+      const { urls, baseUrl } = buildSamplerUrls(mapping, instrumentToLoad, CDN_BASE);
 
       // Track which MIDI notes have samples
       const available = new Set<number>();
@@ -269,10 +321,16 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
 
       setAvailableNotes(available);
 
-      // Analyze gain
-      console.log('[PianoRoll] Analyzing gain for', track.instrument);
-      const calculatedGain = await analyzeInstrumentGain(urls, baseUrl);
-      console.log('[PianoRoll] Applying', calculatedGain.toFixed(1), 'dB gain');
+      // Use pre-calculated gain if available, otherwise analyze dynamically
+      let calculatedGain: number;
+      if (instrumentToLoad && INSTRUMENT_GAINS.hasOwnProperty(instrumentToLoad)) {
+        calculatedGain = INSTRUMENT_GAINS[instrumentToLoad];
+        console.log('[PianoRoll] Using pre-calculated gain for', instrumentToLoad + ':', calculatedGain + 'dB');
+      } else {
+        console.log('[PianoRoll] Analyzing gain for', instrumentToLoad);
+        calculatedGain = await analyzeInstrumentGain(urls, baseUrl);
+        console.log('[PianoRoll] Applying', calculatedGain.toFixed(1), 'dB gain');
+      }
 
       // Dispose old sampler if exists
       if (samplerRef.current) {
@@ -293,7 +351,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
         }).toDestination();
       });
 
-      console.log('[PianoRoll] Loaded instrument preview:', track.instrument);
+      console.log('[PianoRoll] Loaded instrument preview:', instrumentToLoad);
     } catch (error) {
       console.error('[PianoRoll] Failed to load instrument:', error);
     }

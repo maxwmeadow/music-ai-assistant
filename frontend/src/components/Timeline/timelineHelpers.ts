@@ -74,6 +74,67 @@ export function pitchToNote(pitch: number): string {
 }
 
 /**
+ * Convert MIDI pitch to drum name for drum tracks (matches runner/server.js)
+ */
+export function pitchToDrumName(pitch: number): string {
+  const drumMap: Record<number, string> = {
+    36: 'kick',          // C2
+    38: 'snare',         // D2
+    40: 'snare_rimshot', // E2
+    39: 'snare_buzz',    // D#2
+    42: 'hihat_closed',  // F#2
+    46: 'hihat_open',    // A#2
+    44: 'hihat_pedal',   // G#2
+    43: 'tom',           // G2
+    49: 'crash',         // C#3
+    51: 'ride',          // D#3
+  };
+
+  return drumMap[pitch] || pitchToNote(pitch);
+}
+
+/**
+ * Convert note name to MIDI pitch, supporting both drum names and regular notes
+ */
+export function noteNameToPitch(noteName: string): number {
+  // Check if it's a drum name first (matches runner/server.js)
+  const drumNameMap: Record<string, number> = {
+    'kick': 36,
+    'snare': 38,
+    'snare_rimshot': 40,
+    'snare_buzz': 39,
+    'hihat_closed': 42,
+    'hihat_open': 46,
+    'hihat_pedal': 44,
+    'tom': 43,
+    'crash': 49,
+    'ride': 51,
+    // Aliases
+    'hihat': 42,  // Default to closed
+  };
+
+  const lowerName = noteName.toLowerCase();
+  if (drumNameMap[lowerName]) {
+    return drumNameMap[lowerName];
+  }
+
+  // Otherwise, parse as regular note
+  return noteToPitch(noteName);
+}
+
+/**
+ * Check if a track is a drum track based on its ID or instrument
+ */
+export function isDrumTrack(trackId: string, instrument?: string): boolean {
+  const lowerTrackId = trackId.toLowerCase();
+  const lowerInstrument = instrument?.toLowerCase() || '';
+
+  return lowerTrackId.includes('drum') ||
+         lowerInstrument.includes('drum') ||
+         lowerTrackId === 'drums';
+}
+
+/**
  * Expand loop constructs in DSL code
  * Supports time-based loops: loop(startTime, endTime) { note(pitch, relativeStart, duration, velocity) }
  */
@@ -198,7 +259,7 @@ export function parseNotesFromDSL(dslCode: string, trackId: string, tempo: numbe
     const durationVal = parseFloat(duration);
     const velocityVal = parseFloat(velocity);
 
-    const pitch = noteToPitch(noteName);
+    const pitch = noteNameToPitch(noteName);  // Use noteNameToPitch to handle drum names
     notes.push({
       pitch,
       start: secondsToBeats(startVal, tempo),
@@ -218,7 +279,7 @@ export function parseNotesFromDSL(dslCode: string, trackId: string, tempo: numbe
     const velocityVal = parseFloat(velocity);
 
     const chordNotes = chordStr.split(',').map(n => n.trim().replace(/"/g, ''));
-    const rootPitch = noteToPitch(chordNotes[0]);
+    const rootPitch = noteNameToPitch(chordNotes[0]);  // Use noteNameToPitch to handle drum names
     notes.push({
       pitch: rootPitch,
       start: secondsToBeats(startVal, tempo),
@@ -246,7 +307,7 @@ export function parseNotesFromDSL(dslCode: string, trackId: string, tempo: numbe
     // Skip if this note was already added as a direct note
     if (directNoteStarts.has(startBeats.toFixed(3))) continue;
 
-    const pitch = noteToPitch(noteName);
+    const pitch = noteNameToPitch(noteName);  // Use noteNameToPitch to handle drum names
     notes.push({
       pitch,
       start: startBeats,
@@ -269,7 +330,7 @@ export function parseNotesFromDSL(dslCode: string, trackId: string, tempo: numbe
     if (directNoteStarts.has(startBeats.toFixed(3))) continue;
 
     const chordNotes = chordStr.split(',').map(n => n.trim().replace(/"/g, ''));
-    const rootPitch = noteToPitch(chordNotes[0]);
+    const rootPitch = noteNameToPitch(chordNotes[0]);  // Use noteNameToPitch to handle drum names
     notes.push({
       pitch: rootPitch,
       start: startBeats,
@@ -317,9 +378,14 @@ export function updateDSLWithNewNotes(
   // Filter out loop-generated notes - only update directly-written notes
   const directNotes = updatedNotes.filter(note => !note.isFromLoop);
 
+  // Determine if this is a drum track
+  const instrument = instrumentMatch ? instrumentMatch[1] : undefined;
+  const isDrum = isDrumTrack(trackId, instrument);
+
   // Generate new note lines for directly-written notes, converting beats back to seconds
   const noteLines = directNotes.map(note => {
-    const noteName = pitchToNote(note.pitch);
+    // Use drum names for drum tracks, regular notes for others
+    const noteName = isDrum ? pitchToDrumName(note.pitch) : pitchToNote(note.pitch);
     const startSeconds = beatsToSeconds(note.start, tempo);
     const durationSeconds = beatsToSeconds(note.duration, tempo);
 

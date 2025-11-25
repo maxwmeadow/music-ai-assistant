@@ -4,6 +4,9 @@ pydantic
 requests
 python-dotenv
 
+# LLM integration for AI arranger
+anthropic>=0.40.0
+
 # Audio processing dependencies
 librosa>=0.10.0
 numpy>=1.24.0

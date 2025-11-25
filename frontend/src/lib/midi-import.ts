@@ -11,14 +11,14 @@ import { Midi } from '@tonejs/midi';
  */
 const PROGRAM_TO_INSTRUMENT: Record<number, string> = {
   // Piano (0-7)
-  0: 'piano/grand_piano_k',
-  1: 'piano/grand_piano_k',
-  2: 'piano/grand_piano_k',
-  3: 'piano/grand_piano_k',
-  4: 'piano/grand_piano_k',
-  5: 'piano/grand_piano_k',
-  6: 'piano/grand_piano_k',
-  7: 'piano/grand_piano_k',
+  0: 'piano/steinway_grand',
+  1: 'piano/steinway_grand',
+  2: 'piano/steinway_grand',
+  3: 'piano/steinway_grand',
+  4: 'piano/steinway_grand',
+  5: 'piano/steinway_grand',
+  6: 'piano/steinway_grand',
+  7: 'piano/steinway_grand',
 
   // Guitar (24-31)
   24: 'guitar/rjs_guitar_new_strings',
@@ -84,7 +84,7 @@ export async function importFromMIDI(file: File): Promise<any> {
 
       if (!isDrumTrack && midiTrack.instrument) {
         const program = midiTrack.instrument.number;
-        instrument = PROGRAM_TO_INSTRUMENT[program] || 'piano/grand_piano_k';
+        instrument = PROGRAM_TO_INSTRUMENT[program] || 'piano/steinway_grand';
       }
 
       // Convert notes

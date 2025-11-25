@@ -1,6 +1,4 @@
-"""
-Model Server with EXTREME DEBUGGING for proper integration of trained Hum2Melody model
-"""
+"""Model Server - AI model predictions for music generation"""
 
 import numpy as np
 from typing import Dict, Any
@@ -9,110 +7,53 @@ import random
 import sys
 import traceback
 
-print("[MODEL_SERVER.PY] ========================================")
-print("[MODEL_SERVER.PY] Starting model_server.py import")
-print(f"[MODEL_SERVER.PY] Python version: {sys.version}")
-print(f"[MODEL_SERVER.PY] Current working directory: {Path.cwd()}")
-print(f"[MODEL_SERVER.PY] sys.path (first 3): {sys.path[:3]}")
-print("[MODEL_SERVER.PY] ========================================")
-
 # Import schemas
-print("[MODEL_SERVER.PY] Importing schemas...")
 try:
     from .schemas import IR, Track, Note, SampleEvent
-    print("[MODEL_SERVER.PY]   ✅ Schemas imported successfully")
 except ImportError as e:
-    print(f"[MODEL_SERVER.PY]   ❌ Failed to import schemas: {e}")
-    traceback.print_exc()
+    print(f"❌ Failed to import schemas: {e}")
     raise
 
-# Import the new hum2melody package
-print("[MODEL_SERVER.PY] Attempting to import ChunkedHybridHum2Melody...")
-print("[MODEL_SERVER.PY]   Trying: from .hum2melody.inference.hybrid_inference_chunked import ChunkedHybridHum2Melody")
-
+# Import hum2melody package
 ChunkedHybridHum2Melody = None
 try:
     from .hum2melody.inference.hybrid_inference_chunked import ChunkedHybridHum2Melody
-    print("[MODEL_SERVER.PY]   ✅ SUCCESS - ChunkedHybridHum2Melody imported!")
-    print(f"[MODEL_SERVER.PY]   ChunkedHybridHum2Melody type: {type(ChunkedHybridHum2Melody)}")
+    print("✅ ChunkedHybridHum2Melody loaded")
 except ImportError as e:
-    print(f"[MODEL_SERVER.PY]   ❌ FAILED - ImportError: {e}")
-    print("[MODEL_SERVER.PY]   Full traceback:")
-    traceback.print_exc()
-    print("[MODEL_SERVER.PY]   ChunkedHybridHum2Melody will be None")
-    ChunkedHybridHum2Melody = None
-except Exception as e:
-    print(f"[MODEL_SERVER.PY]   ❌ FAILED - Unexpected error: {e}")
-    print("[MODEL_SERVER.PY]   Full traceback:")
-    traceback.print_exc()
-    print("[MODEL_SERVER.PY]   ChunkedHybridHum2Melody will be None")
-    ChunkedHybridHum2Melody = None
+    print(f"⚠️ ChunkedHybridHum2Melody unavailable: {e}")
 
-print(f"[MODEL_SERVER.PY] Final ChunkedHybridHum2Melody status: {ChunkedHybridHum2Melody is not None}")
-print("[MODEL_SERVER.PY] ========================================")
-
-# Import the new beatbox2drums package
-print("[MODEL_SERVER.PY] Attempting to import Beatbox2DrumsPipeline...")
-print("[MODEL_SERVER.PY]   Trying: from .beatbox2drums.inference.beatbox2drums_pipeline import Beatbox2DrumsPipeline")
-
+# Import beatbox2drums package
 Beatbox2DrumsPipeline = None
 try:
     from .beatbox2drums.inference.beatbox2drums_pipeline import Beatbox2DrumsPipeline
-    print("[MODEL_SERVER.PY]   ✅ SUCCESS - Beatbox2DrumsPipeline imported!")
-    print(f"[MODEL_SERVER.PY]   Beatbox2DrumsPipeline type: {type(Beatbox2DrumsPipeline)}")
+    print("✅ Beatbox2DrumsPipeline loaded")
 except ImportError as e:
-    print(f"[MODEL_SERVER.PY]   ❌ FAILED - ImportError: {e}")
-    print("[MODEL_SERVER.PY]   Full traceback:")
-    traceback.print_exc()
-    print("[MODEL_SERVER.PY]   Beatbox2DrumsPipeline will be None")
-    Beatbox2DrumsPipeline = None
-except Exception as e:
-    print(f"[MODEL_SERVER.PY]   ❌ FAILED - Unexpected error: {e}")
-    print("[MODEL_SERVER.PY]   Full traceback:")
-    traceback.print_exc()
-    print("[MODEL_SERVER.PY]   Beatbox2DrumsPipeline will be None")
-    Beatbox2DrumsPipeline = None
-
-print(f"[MODEL_SERVER.PY] Final Beatbox2DrumsPipeline status: {Beatbox2DrumsPipeline is not None}")
-print("[MODEL_SERVER.PY] ========================================")
+    print(f"⚠️ Beatbox2DrumsPipeline unavailable: {e}")
 
 
 class ModelServer:
-    """
-    Serves AI model predictions for music generation.
-    Now integrates the trained model if available, but falls back to mock logic.
-    """
+    """Serves AI model predictions for music generation."""
 
     def __init__(self):
         """Initialize model server with optional lazy loading"""
         import os
 
-        print("[ModelServer.__init__] ========================================")
-        print("[ModelServer.__init__] Initializing ModelServer")
-
-        # Store as instance variable for health endpoint
         self.checkpoint_path = Path("hum2melody/checkpoints/combined_hum2melody_full.pth")
         self._model_loading_attempted = False
         self._beatbox_loading_attempted = False
-
-        # Check if lazy loading is enabled
         self.lazy_load = os.getenv("LAZY_LOAD_MODELS", "false").lower() == "true"
-        print(f"[ModelServer.__init__]   Lazy loading: {self.lazy_load}")
 
         # Define scales for fallback
         self.c_major_scale = [60, 62, 64, 65, 67, 69, 71, 72]
         self.a_minor_scale = [57, 59, 60, 62, 64, 65, 67, 69]
 
         if self.lazy_load:
-            print("[ModelServer.__init__] ⚡ Lazy loading enabled - models will load on first use")
+            print("⚡ Lazy loading enabled - models load on first use")
             self.predictor = None
             self.beatbox_predictor = None
         else:
-            print("[ModelServer.__init__] 🔄 Eager loading - loading models now...")
             self._load_hum2melody_model()
             self._load_beatbox2drums_model()
-
-        print("[ModelServer.__init__] ========================================")
 
     def _load_hum2melody_model(self):
         """Load the hum2melody model if not already loaded"""
@@ -122,18 +63,10 @@ class ModelServer:
         self._model_loading_attempted = True
         checkpoint_path = self.checkpoint_path
 
-        print("[ModelServer] ========================================")
-        print("[ModelServer] Loading Hum2Melody model...")
-        print(f"[ModelServer]   Checkpoint path: {checkpoint_path}")
-        print(f"[ModelServer]   Checkpoint exists: {checkpoint_path.exists()}")
-
-        if checkpoint_path.exists():
-            size_mb = checkpoint_path.stat().st_size / (1024 * 1024)
-            print(f"[ModelServer]   Checkpoint size: {size_mb:.1f} MB")
-
         if ChunkedHybridHum2Melody is not None and checkpoint_path.exists():
             try:
-                print(f"[ModelServer]   Creating ChunkedHybridHum2Melody instance...")
+                size_mb = checkpoint_path.stat().st_size / (1024 * 1024)
+                print(f"Loading Hum2Melody model ({size_mb:.1f} MB)...")
                 self.predictor = ChunkedHybridHum2Melody(
                     checkpoint_path=str(checkpoint_path),
                     device='cpu',
@@ -142,19 +75,14 @@ class ModelServer:
                     offset_high=0.30,
                     offset_low=0.10
                 )
-                print(f"[ModelServer]   ✅ Hum2Melody model loaded successfully!")
+                print("✅ Hum2Melody model ready")
             except Exception as e:
-                print(f"[ModelServer]   ❌ Failed to load model: {e}")
-                traceback.print_exc()
+                print(f"❌ Failed to load Hum2Melody: {e}")
                 self.predictor = None
         else:
             self.predictor = None
             if not checkpoint_path.exists():
-                print(f"[ModelServer]   ❌ No trained model found at {checkpoint_path}")
-            if ChunkedHybridHum2Melody is None:
-                print("[ModelServer]   ❌ ChunkedHybridHum2Melody not available")
-
-        print("[ModelServer] ========================================")
+                print(f"❌ Checkpoint not found: {checkpoint_path}")
 
     def _load_beatbox2drums_model(self):
         """Load the beatbox2drums model if not already loaded"""
@@ -163,19 +91,13 @@ class ModelServer:
 
         self._beatbox_loading_attempted = True
 
-        print("[ModelServer] ========================================")
-        print("[ModelServer] Loading Beatbox2Drums model...")
-
         onset_checkpoint_path = Path("beatbox2drums/checkpoints/onset_detector/best_onset_model.h5")
         classifier_checkpoint_path = Path("beatbox2drums/checkpoints/drum_classifier/best_model_multi_input.pth")
         feature_norm_path = Path("beatbox2drums/checkpoints/drum_classifier/feature_normalization.npz")
 
-        print(f"[ModelServer]   Onset checkpoint exists: {onset_checkpoint_path.exists()}")
-        print(f"[ModelServer]   Classifier checkpoint exists: {classifier_checkpoint_path.exists()}")
-
         if Beatbox2DrumsPipeline is not None and onset_checkpoint_path.exists() and classifier_checkpoint_path.exists():
             try:
-                print(f"[ModelServer]   Creating Beatbox2DrumsPipeline instance...")
+                print("Loading Beatbox2Drums pipeline...")
                 self.beatbox_predictor = Beatbox2DrumsPipeline(
                     onset_checkpoint_path=str(onset_checkpoint_path),
                     classifier_checkpoint_path=str(classifier_checkpoint_path),
@@ -186,45 +108,26 @@ class ModelServer:
                     use_multi_input=True,
                     feature_norm_path=str(feature_norm_path) if feature_norm_path.exists() else None
                 )
-                print(f"[ModelServer]   ✅ Beatbox2Drums pipeline loaded successfully!")
+                print("✅ Beatbox2Drums pipeline ready")
             except Exception as e:
-                print(f"[ModelServer]   ❌ Failed to load beatbox2drums pipeline: {e}")
-                traceback.print_exc()
+                print(f"❌ Failed to load Beatbox2Drums: {e}")
                 self.beatbox_predictor = None
         else:
             self.beatbox_predictor = None
-            if not onset_checkpoint_path.exists():
-                print(f"[ModelServer]   ❌ Onset checkpoint not found")
-            if not classifier_checkpoint_path.exists():
-                print(f"[ModelServer]   ❌ Classifier checkpoint not found")
-            if Beatbox2DrumsPipeline is None:
-                print("[ModelServer]   ❌ Beatbox2DrumsPipeline not available")
-
-        print("[ModelServer] ========================================")
+            print("❌ Beatbox2Drums checkpoints not found")
 
     async def predict_melody(self, audio_features: Dict[str, Any]) -> Track:
-        """
-        Predict melody from humming audio features.
-        Uses trained model if available; otherwise falls back to mock predictions.
-        """
-        print("[ModelServer.predict_melody] ========================================")
-        print(f"[ModelServer.predict_melody] Called with audio_features keys: {list(audio_features.keys())}")
-
+        """Predict melody from humming audio features."""
         # Lazy load model if needed
         if self.lazy_load and self.predictor is None and not self._model_loading_attempted:
-            print("[ModelServer.predict_melody] ⚡ Lazy loading hum2melody model...")
             self._load_hum2melody_model()
-
-        print(f"[ModelServer.predict_melody] Predictor is None: {self.predictor is None}")
 
         # Handle invalid or missing inputs
         if not audio_features:
-            print("[ModelServer.predict_melody] ⚠️ Missing audio features, using mock.")
             return self._mock_melody(audio_features)
 
         # Try real model if available
         if self.predictor is not None:
-            print("[ModelServer.predict_melody] ✅ Predictor available - attempting real inference")
             try:
                 import tempfile
                 import os
@@ -236,20 +139,14 @@ class ModelServer:
                 # If audio_bytes provided, save to temp file
                 audio_bytes = audio_features.get("audio_bytes")
                 if audio_bytes and not audio_path:
-                    print(f"[ModelServer.predict_melody]   Saving audio bytes ({len(audio_bytes)} bytes) to temp file")
                     temp_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
                     temp_file.write(audio_bytes)
                     temp_file.close()
                     audio_path = temp_file.name
-                    print(f"[ModelServer.predict_melody]   Temp file created: {audio_path}")
 
                 if audio_path and os.path.exists(audio_path):
-                    print(f"[ModelServer.predict_melody]   Using audio file: {audio_path}")
-
-                    # Call predict_chunked with min_confidence=0.25 (recommended for production)
+                    # Call predict_chunked with min_confidence=0.25
                     notes = self.predictor.predict_chunked(audio_path, min_confidence=0.25)
-
-                    print(f"[ModelServer.predict_melody]   ✅ Generated {len(notes)} notes from trained model")
 
                     # Convert notes to Track format
                     track_notes = []
@@ -258,7 +155,7 @@ class ModelServer:
                             pitch=note_dict['midi'],
                             start=note_dict['start'],
                             duration=note_dict['duration'],
-                            velocity=int(note_dict['confidence'] * 127)  # Convert confidence to velocity
+                            velocity=int(note_dict['confidence'] * 127)
                         )
                         track_notes.append(note)
 
@@ -266,58 +163,40 @@ class ModelServer:
                     if temp_file:
                         try:
                             os.unlink(temp_file.name)
-                            print(f"[ModelServer.predict_melody]   Cleaned up temp file")
                         except:
                             pass
 
                     if track_notes:
-                        # Get instrument from audio_features or use default
                         instrument = audio_features.get('instrument', 'piano/grand_piano_k')
+                        print(f"✅ Generated {len(track_notes)} notes from model")
                         return Track(id='melody', instrument=instrument, notes=track_notes)
                     else:
-                        print("[ModelServer.predict_melody]   ⚠️ No notes generated, using mock")
+                        print("⚠️ No notes detected, using mock")
                         return self._mock_melody(audio_features)
                 else:
-                    print("[ModelServer.predict_melody]   ⚠️ No valid audio file path available")
                     return self._mock_melody(audio_features)
 
             except Exception as e:
-                print(f"[ModelServer.predict_melody]   ❌ Model inference failed: {e}")
-                print("[ModelServer.predict_melody]   Full traceback:")
+                print(f"❌ Model inference failed: {e}")
                 traceback.print_exc()
                 return self._mock_melody(audio_features)
         else:
-            # Fallback to mock predictions
-            print("[ModelServer.predict_melody] ❌ No trained model loaded, using mock.")
+            print("⚠️ No trained model, using mock")
             return self._mock_melody(audio_features)
 
 
     async def predict_drums(self, audio_features: Dict[str, Any], return_visualization: bool = False):
-        """
-        Predict drum pattern from beatbox audio features.
-        Uses trained CNN pipeline if available; otherwise falls back to mock predictions.
-
-        Returns:
-            Tuple of (Track, Optional[visualization_data dict])
-        """
-        print("[ModelServer.predict_drums] ========================================")
-        print(f"[ModelServer.predict_drums] Called with audio_features keys: {list(audio_features.keys())}")
-
+        """Predict drum pattern from beatbox audio features."""
         # Lazy load model if needed
         if self.lazy_load and self.beatbox_predictor is None and not self._beatbox_loading_attempted:
-            print("[ModelServer.predict_drums] ⚡ Lazy loading beatbox2drums model...")
             self._load_beatbox2drums_model()
-
-        print(f"[ModelServer.predict_drums] Beatbox predictor is None: {self.beatbox_predictor is None}")
 
         # Handle invalid or missing inputs
         if not audio_features:
-            print("[ModelServer.predict_drums] ⚠️ Missing audio features, using mock.")
             return self._mock_drums(audio_features), None
 
         # Try real model if available
         if self.beatbox_predictor is not None:
-            print("[ModelServer.predict_drums] ✅ Beatbox predictor available - attempting real inference")
             try:
                 import tempfile
                 import os
@@ -326,47 +205,100 @@ class ModelServer:
                 temp_file = None
                 audio_bytes = audio_features.get("audio_bytes")
 
-                # Prefer audio_bytes if available (creates reliable temp file)
                 if audio_bytes:
-                    print(f"[ModelServer.predict_drums]   Saving audio bytes ({len(audio_bytes)} bytes) to temp file")
                     temp_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
                     temp_file.write(audio_bytes)
                     temp_file.close()
                     audio_path = temp_file.name
-                    print(f"[ModelServer.predict_drums]   Temp file created: {audio_path}")
                 else:
-                    # Fall back to saved audio_path if audio_bytes not available
                     audio_path = audio_features.get("audio_path")
-                    print(f"[ModelServer.predict_drums]   Using saved audio path: {audio_path}")
 
                 if audio_path and os.path.exists(audio_path):
-                    print(f"[ModelServer.predict_drums]   Using audio file: {audio_path}")
-
                     # Call pipeline to get drum hits
                     drum_hits = self.beatbox_predictor.predict(audio_path)
 
-                    print(f"[ModelServer.predict_drums]   ✅ Generated {len(drum_hits)} drum hits from trained model")
+                    # Convert drum hits to Note format with MIDI pitches
+                    # Map drum types to MIDI notes (matches runner/server.js)
+                    DRUM_TO_MIDI = {
+                        'kick': 36,           # C2
+                        'snare': 38,          # D2
+                        'snare_rimshot': 40,  # E2
+                        'snare_buzz': 39,     # D#2
+                        'hihat': 42,          # F#2
+                        'hihat_closed': 42,   # F#2
+                        'hihat_open': 46,     # A#2
+                        'hihat_pedal': 44,    # G#2
+                        'tom': 43,            # G2
+                        'crash': 49,          # C#3
+                        'ride': 51,           # D#3
+                    }
 
-                    # Convert drum hits to SampleEvent format
-                    samples = []
-                    for hit in drum_hits:
-                        sample_event = SampleEvent(
-                            sample=hit.drum_type,  # 'kick', 'snare', or 'hihat'
-                            start=float(hit.time)
+                    # Duration by drum type (in seconds)
+                    DRUM_DURATIONS = {
+                        'kick': 0.4,
+                        'snare': 0.3,
+                        'snare_rimshot': 0.2,
+                        'snare_buzz': 0.5,
+                        'hihat': 0.15,
+                        'hihat_closed': 0.15,
+                        'hihat_open': 0.8,
+                        'hihat_pedal': 0.2,
+                        'tom': 0.5,
+                        'crash': 1.5,
+                        'ride': 0.4,
+                    }
+
+                    # Standard velocity by drum type
+                    DRUM_VELOCITIES = {
+                        'kick': 0.85,
+                        'snare': 0.8,
+                        'snare_rimshot': 0.75,
+                        'snare_buzz': 0.7,
+                        'hihat': 0.6,
+                        'hihat_closed': 0.6,
+                        'hihat_open': 0.65,
+                        'hihat_pedal': 0.5,
+                        'tom': 0.75,
+                        'crash': 0.8,
+                        'ride': 0.7,
+                    }
+
+                    notes = []
+                    for i, hit in enumerate(drum_hits):
+                        midi_pitch = DRUM_TO_MIDI.get(hit.drum_type, 36)  # Default to kick
+
+                        # Get default duration for this drum type
+                        default_duration = DRUM_DURATIONS.get(hit.drum_type, 0.5)
+
+                        # Calculate duration based on time to next onset
+                        if i < len(drum_hits) - 1:
+                            time_to_next = float(drum_hits[i + 1].time) - float(hit.time)
+                            # Use minimum of default duration and time to next hit
+                            duration = min(default_duration, time_to_next * 0.9)  # 90% to avoid overlap
+                        else:
+                            duration = default_duration
+
+                        # Get standard velocity for this drum type
+                        velocity = DRUM_VELOCITIES.get(hit.drum_type, 0.8)
+
+                        note = Note(
+                            pitch=midi_pitch,
+                            start=float(hit.time),
+                            duration=duration,
+                            velocity=velocity
                         )
-                        samples.append(sample_event)
+                        notes.append(note)
 
                     # Build visualization data if requested
                     visualization_data = None
                     if return_visualization and drum_hits:
                         import librosa
-                        import numpy as np
 
                         # Load audio for waveform
                         audio, sr = librosa.load(audio_path, sr=16000, mono=True)
                         duration = len(audio) / sr
 
-                        # Downsample waveform for visualization (every 100 samples for 16kHz)
+                        # Downsample waveform for visualization
                         downsample_factor = 100
                         downsampled_waveform = audio[::downsample_factor].tolist()
 
@@ -378,7 +310,6 @@ class ModelServer:
                                 "drum_type": hit.drum_type,
                                 "confidence": float(hit.confidence)
                             }
-                            # Add probabilities if available
                             if hit.probabilities:
                                 hit_data["probabilities"] = {
                                     "kick": float(hit.probabilities.get('kick', 0)),
@@ -390,77 +321,98 @@ class ModelServer:
                         visualization_data = {
                             "waveform": {
                                 "data": downsampled_waveform,
-                                "sample_rate": sr // downsample_factor,  # Effective sample rate after downsampling
+                                "sample_rate": sr // downsample_factor,
                                 "duration": float(duration)
                             },
                             "drum_hits": hits_data,
                             "num_hits": len(drum_hits)
                         }
 
-                        print(f"[ModelServer.predict_drums]   ✅ Generated visualization data with {len(drum_hits)} hits")
-
-                    # Clean up temp file if we created one
+                    # Clean up temp file
                     if temp_file:
                         try:
                             os.unlink(temp_file.name)
-                            print(f"[ModelServer.predict_drums]   Cleaned up temp file")
                         except:
                             pass
 
-                    if samples:
-                        print(f"[ModelServer.predict_drums]   Returning {len(samples)} drum samples")
-                        return Track(id='drums', instrument=None, notes=None, samples=samples), visualization_data
+                    if notes:
+                        print(f"✅ Generated {len(notes)} drum hits from model")
+                        # Use notes instead of samples for consistency, with drum instrument
+                        return Track(id='drums', instrument='drums/bedroom_drums', notes=notes, samples=None), visualization_data
                     else:
-                        print("[ModelServer.predict_drums]   ⚠️ No drum hits generated, using mock")
+                        print("⚠️ No drum hits detected, using mock")
                         return self._mock_drums(audio_features), None
                 else:
-                    print("[ModelServer.predict_drums]   ⚠️ No valid audio file path available")
                     return self._mock_drums(audio_features), None
 
             except Exception as e:
-                print(f"[ModelServer.predict_drums]   ❌ Model inference failed: {e}")
-                print("[ModelServer.predict_drums]   Full traceback:")
+                print(f"❌ Drum inference failed: {e}")
                 traceback.print_exc()
                 return self._mock_drums(audio_features), None
         else:
-            # Fallback to mock predictions
-            print("[ModelServer.predict_drums] ❌ No trained model loaded, using mock.")
+            print("⚠️ No trained model, using mock")
             return self._mock_drums(audio_features), None
 
     def _mock_drums(self, audio_features: Dict[str, Any]) -> Track:
         """Fallback drum pattern generator for testing."""
-        print("[ModelServer._mock_drums] Using mock drum pattern generator")
-
         onset_times = audio_features.get("onset_times", [])
         tempo = audio_features.get("tempo", 120)
 
-        samples = []
+        # Drum MIDI mapping (matches runner/server.js)
+        DRUM_TO_MIDI = {
+            'kick': 36,
+            'snare': 38,
+            'hihat_closed': 42
+        }
+
+        # Duration and velocity by type
+        DRUM_SETTINGS = {
+            'kick': {'duration': 0.4, 'velocity': 0.85},
+            'snare': {'duration': 0.3, 'velocity': 0.8},
+            'hihat_closed': {'duration': 0.15, 'velocity': 0.6},
+        }
+
+        notes = []
         if not onset_times:
             beat_interval = 60.0 / tempo
             onset_times = [i * beat_interval for i in range(16)]
 
         for i, start_time in enumerate(onset_times):
             if i % 4 == 0:
-                sample_type = "kick"
+                drum_type = "kick"
             elif i % 2 == 1:
-                sample_type = "snare"
+                drum_type = "snare"
             else:
-                sample_type = "hihat"
-            samples.append(SampleEvent(sample=sample_type, start=float(start_time)))
+                drum_type = "hihat_closed"
 
-        print(f"[ModelServer._mock_drums]   Generated {len(samples)} mock drum samples")
-        return Track(id="drums", instrument=None, notes=None, samples=samples)
+            settings = DRUM_SETTINGS[drum_type]
+
+            # Calculate duration based on time to next onset
+            if i < len(onset_times) - 1:
+                time_to_next = onset_times[i + 1] - start_time
+                duration = min(settings['duration'], time_to_next * 0.9)
+            else:
+                duration = settings['duration']
+
+            note = Note(
+                pitch=DRUM_TO_MIDI[drum_type],
+                start=float(start_time),
+                duration=duration,
+                velocity=settings['velocity']
+            )
+            notes.append(note)
+
+        print(f"Mock: Generated {len(notes)} drum notes")
+        return Track(id="drums", instrument='drums/bedroom_drums', notes=notes, samples=None)
 
 
     async def arrange_track(self, existing_ir: IR, style: str = "pop") -> IR:
-        """
-        Take existing melody and add accompanying tracks (bass, chords, etc).
-        """
+        """Take existing melody and add accompanying tracks (bass, chords, etc)."""
         melody_track = next((t for t in existing_ir.tracks if t.notes), None)
         if not melody_track or not melody_track.notes:
             return existing_ir
 
-        # Generate bass (use start times from melody)
+        # Generate bass
         bass_notes = []
         for i, note in enumerate(melody_track.notes[::2]):
             bass_notes.append(
@@ -476,7 +428,7 @@ class ModelServer:
             id="bass", instrument="bass_synth", notes=bass_notes, samples=None
         )
 
-        # Chords (every 2 seconds)
+        # Chords
         chord_notes = []
         chord_progression = [60, 65, 67, 62]
         for i, chord_root in enumerate(chord_progression):
@@ -501,8 +453,6 @@ class ModelServer:
 
     def _mock_melody(self, audio_features: Dict[str, Any]) -> Track:
         """Fallback melody generator for testing."""
-        print("[ModelServer._mock_melody] Using mock melody generator")
-
         onset_times = audio_features.get("onset_times", [])
         duration = audio_features.get("duration", 4.0)
         notes = []
@@ -525,11 +475,7 @@ class ModelServer:
                 velocity=velocity
             ))
 
-        print(f"[ModelServer._mock_melody]   Generated {len(notes)} mock notes")
+        print(f"Mock: Generated {len(notes)} notes")
         return Track(
             id="melody", instrument="guitar/rjs_guitar_new_strings", notes=notes, samples=None
         )
-
-
-print("[MODEL_SERVER.PY] Class definition complete")
-print("[MODEL_SERVER.PY] ========================================")

@@ -133,16 +133,24 @@ function irToDSL(ir) {
             dsl += `  instrument("${track.instrument}")\n`;
         }
 
+        // Check if this is a drum track
+        const isDrumTrack = track.id.toLowerCase().includes('drum') ||
+                           track.instrument?.toLowerCase().includes('drum');
+
         if (track.notes) {
             track.notes.forEach(note => {
-                const noteName = midiToNote(note.pitch);
+                // Use drum names for drum tracks, regular notes for others
+                const noteName = isDrumTrack ? midiToDrumName(note.pitch) : midiToNote(note.pitch);
                 dsl += `  note("${noteName}", ${note.start}, ${note.duration}, ${note.velocity})\n`;
             });
         }
 
         if (track.samples) {
             track.samples.forEach(sample => {
-                dsl += `  ${sample.sample}(${sample.start})\n`;
+                // Convert samples to note() format for consistency
+                const duration = sample.duration || 0.5;
+                const velocity = sample.velocity || 0.8;
+                dsl += `  note("${sample.sample}", ${sample.start}, ${duration}, ${velocity})\n`;
             });
         }
 
@@ -286,6 +294,36 @@ function extractTracks(dslCode) {
 }
 
 /**
+ * Convert flat note names to their sharp equivalents
+ * This allows users to write either Bb4 or A#4 - both will work
+ * @param {string} dslCode - The DSL code that may contain flat notes
+ * @returns {string} DSL code with all flats converted to sharps
+ */
+function convertFlatsToSharps(dslCode) {
+    // Mapping of flats to sharps
+    const flatToSharp = {
+        'Bb': 'A#',
+        'Eb': 'D#',
+        'Ab': 'G#',
+        'Db': 'C#',
+        'Gb': 'F#'
+    };
+
+    // Replace all quoted flat notes (e.g., "Bb4", "Eb3")
+    // Pattern matches: "NoteOctave" where Note is a letter with 'b'
+    let converted = dslCode;
+
+    for (const [flat, sharp] of Object.entries(flatToSharp)) {
+        // Match quoted notes like "Bb4" and replace with "A#4"
+        // Use regex with global flag to replace all occurrences
+        const regex = new RegExp(`"${flat}(\\d+)"`, 'g');
+        converted = converted.replace(regex, `"${sharp}$1"`);
+    }
+
+    return converted;
+}
+
+/**
  * Compile DSL to executable Tone.js code
  * This is the core replacement for generator.js
  * @param {string} dslCode - The DSL code to compile
@@ -293,6 +331,10 @@ function extractTracks(dslCode) {
  */
 async function compileDSLToExecutable(dslCode, irData = null) {
     const CDN_BASE = 'https://pub-e7b8ae5d5dcb4e23b0bf02e7b966c2f7.r2.dev';
+
+    // Convert flats to sharps (Bb→A#, Eb→D#, etc.)
+    dslCode = convertFlatsToSharps(dslCode);
+    console.log('[EVAL] Converted flats to sharps');
 
     // Expand loops before parsing
     dslCode = expandLoops(dslCode);
@@ -322,17 +364,24 @@ async function compileDSLToExecutable(dslCode, irData = null) {
             trackConfigs.push({ trackId, instrumentName });
         }
 
+        // Check if this is a drum track
+        const isDrumTrack = trackId.toLowerCase().includes('drum') ||
+                           instrumentName?.toLowerCase().includes('drum');
+
         // Parse notes (4-parameter with absolute timing)
         const noteMatches = trackMatch.match(/note\("([^"]+)",\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g);
         const notes = [];
 
         if (noteMatches) {
             noteMatches.forEach(noteMatch => {
-                const [, note, start, duration, velocity] =
+                const [, noteName, start, duration, velocity] =
                     noteMatch.match(/note\("([^"]+)",\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/);
 
+                // Convert drum names to MIDI notes for drum tracks
+                const finalNote = isDrumTrack ? drumNameToMidiNote(noteName) : noteName;
+
                 notes.push({
-                    note,
+                    note: finalNote,
                     duration: parseFloat(duration),
                     velocity: parseFloat(velocity),
                     time: parseFloat(start)
@@ -450,7 +499,47 @@ function generateExecutableCode(CDN_BASE, tempo, trackConfigs, trackSchedules, a
     const trackConfigs = ${configsJSON};
     const trackSchedules = ${schedulesJSON};
     const audioClips = ${audioClipsJSON};
-    
+
+    // Pre-calculated gain compensation map (in dB)
+    // Target level: -12dB peak
+    const INSTRUMENT_GAINS = {
+        // Pianos
+        'piano/steinway_grand': 0,
+        'piano/bechstein_1911_upright': 0,
+        'piano/fender_rhodes': 0,
+        'piano/experience_ny_steinway': 0,
+        // Harpsichords
+        'harpsichord/harpsichord_english': -10,
+        'harpsichord/harpsichord_flemish': -10,
+        'harpsichord/harpsichord_french': -10,
+        'harpsichord/harpsichord_italian': -15,
+        'harpsichord/harpsichord_unk': -10,
+        // Guitars
+        'guitar/rjs_guitar_palm_muted_softly_strings': -5,
+        'guitar/rjs_guitar_palm_muted_strings': -6,
+        'synth/lead/ld_the_stack_guitar_chug': 0,
+        'synth/lead/ld_the_stack_guitar': -1,
+        'guitar/rjs_guitar_new_strings': 0,
+        'guitar/rjs_guitar_old_strings': 4,
+        // Bass
+        'bass/funky_fingers': -10,
+        'bass/low_fat_bass': -5,
+        'bass/jp8000_sawbass': 2,
+        'bass/jp8000_tribass': 2,
+        // Strings
+        'strings/nfo_chamber_strings_longs': 0,
+        'strings/nfo_iso_celli_swells': 0,
+        'strings/nfo_iso_viola_swells': 0,
+        'strings/nfo_iso_violin_swells': 0,
+        // Brass
+        'brass/nfo_iso_brass_swells': 0,
+        // Winds
+        'winds/flute_violin': 0,
+        'winds/subtle_clarinet': 0,
+        'winds/decent_oboe': 0,
+        'winds/tenor_saxophone': 0,
+    };
+
     // PERSISTENT CACHE: Store in window so it survives between plays
     if (!window.__musicCache) {
         window.__musicCache = {
@@ -557,11 +646,21 @@ function generateExecutableCode(CDN_BASE, tempo, trackConfigs, trackSchedules, a
     function buildSamplerUrls(mapping, instrumentPath) {
         const urls = {};
         const baseUrl = CDN_BASE + '/samples/' + instrumentPath + '/';
-        
+
+        // Helper to create URL with fallback extensions
+        const normalizeFileUrl = (file) => {
+            // Try lowercase .wav first, store uppercase .WAV as fallback
+            const encodedPath = file.split('/').map(encodeURIComponent).join('/');
+            return {
+                primary: encodedPath.replace(/\.WAV$/i, '.wav'),
+                fallback: encodedPath.replace(/\.wav$/i, '.WAV')
+            };
+        };
+
         if (mapping.velocity_layers) {
             for (const [note, layers] of Object.entries(mapping.velocity_layers)) {
                 let sampleKey = note;
-                
+
                 if (mapping.type === 'drums') {
                     const drumNoteMap = {
                         "kick": "C2", "snare": "D2", "snare_rimshot": "E2",
@@ -570,22 +669,24 @@ function generateExecutableCode(CDN_BASE, tempo, trackConfigs, trackSchedules, a
                     };
                     sampleKey = drumNoteMap[note] || note;
                 }
-                
-                let selectedLayer = layers.find(l => 
+
+                let selectedLayer = layers.find(l =>
                     l.file.includes('Sustains') || l.file.includes('sus')
                 ) || layers.find(l => l.file.includes('vel4')) || layers[Math.floor(layers.length / 2)];
-                
+
                 if (selectedLayer) {
-                    urls[sampleKey] = selectedLayer.file.split('/').map(encodeURIComponent).join('/');
+                    const { primary, fallback } = normalizeFileUrl(selectedLayer.file);
+                    urls[sampleKey] = { primary, fallback };
                 }
             }
         }
         else if (mapping.samples) {
             for (const [note, file] of Object.entries(mapping.samples)) {
-                urls[note] = file.split('/').map(encodeURIComponent).join('/');
+                const { primary, fallback } = normalizeFileUrl(file);
+                urls[note] = { primary, fallback };
             }
         }
-        
+
         return { urls, baseUrl };
     }
     
@@ -647,23 +748,59 @@ function generateExecutableCode(CDN_BASE, tempo, trackConfigs, trackSchedules, a
         
         const mapping = await loadMapping(instrumentName);
         const { urls, baseUrl } = buildSamplerUrls(mapping, instrumentName);
-        
-        console.log(\`[Music] Analyzing gain for \${instrumentName}...\`);
-        const calculatedGain = await analyzeInstrumentGain(urls, baseUrl);
-        console.log(\`[Music] Applying \${calculatedGain.toFixed(1)}dB gain to \${instrumentName}\`);
-        
+
+        // Convert urls object to primary URLs first
+        const primaryUrls = {};
+        const fallbackUrls = {};
+        for (const [note, urlObj] of Object.entries(urls)) {
+            if (typeof urlObj === 'object' && urlObj.primary) {
+                primaryUrls[note] = urlObj.primary;
+                fallbackUrls[note] = urlObj.fallback;
+            } else {
+                primaryUrls[note] = urlObj;
+                fallbackUrls[note] = urlObj;
+            }
+        }
+
+        // Use pre-calculated gain if available, otherwise analyze dynamically
+        let calculatedGain;
+        if (INSTRUMENT_GAINS.hasOwnProperty(instrumentName)) {
+            calculatedGain = INSTRUMENT_GAINS[instrumentName];
+            console.log(\`[Music] Using pre-calculated gain for \${instrumentName}: \${calculatedGain}dB\`);
+        } else {
+            console.log(\`[Music] Analyzing gain for \${instrumentName}...\`);
+            calculatedGain = await analyzeInstrumentGain(primaryUrls, baseUrl);
+            console.log(\`[Music] Applying \${calculatedGain.toFixed(1)}dB gain to \${instrumentName}\`);
+        }
+
         const pool = [];
-        
+
         for (let i = 0; i < voiceCount; i++) {
-            const sampler = await new Promise((resolve, reject) => {
-                const s = new Tone.Sampler({
-                    urls,
-                    baseUrl,
-                    volume: calculatedGain,
-                    onload: () => resolve(s),
-                    onerror: reject
-                }).toDestination();
-            });
+            let sampler;
+            try {
+                // Try primary URLs first (.wav)
+                sampler = await new Promise((resolve, reject) => {
+                    const s = new Tone.Sampler({
+                        urls: primaryUrls,
+                        baseUrl,
+                        volume: calculatedGain,
+                        onload: () => resolve(s),
+                        onerror: reject
+                    }).toDestination();
+                });
+            } catch (error) {
+                console.log(\`[Music] Primary URLs failed for \${instrumentName}, trying fallback (.WAV)...\`);
+                // Fallback to .WAV extension
+                sampler = await new Promise((resolve, reject) => {
+                    const s = new Tone.Sampler({
+                        urls: fallbackUrls,
+                        baseUrl,
+                        volume: calculatedGain,
+                        onload: () => resolve(s),
+                        onerror: reject
+                    }).toDestination();
+                });
+            }
             sampler.__preGain = calculatedGain;
             pool.push(sampler);
         }
@@ -837,6 +974,49 @@ function midiToNote(midi) {
     const octave = Math.floor(midi / 12) - 1;
     const note = notes[midi % 12];
     return note + octave;
+}
+
+/**
+ * Convert MIDI number to drum name for drum tracks
+ */
+function midiToDrumName(midi) {
+    const drumMap = {
+        36: 'kick',          // C2
+        38: 'snare',         // D2
+        40: 'snare_rimshot', // E2
+        39: 'snare_buzz',    // D#2
+        42: 'hihat_closed',  // F#2
+        46: 'hihat_open',    // A#2
+        44: 'hihat_pedal',   // G#2
+        43: 'tom',           // G2
+        49: 'crash',         // C#3
+        51: 'ride',          // D#3
+    };
+
+    return drumMap[midi] || midiToNote(midi);
+}
+
+/**
+ * Convert drum name to MIDI note for playback
+ */
+function drumNameToMidiNote(noteName) {
+    const drumNameMap = {
+        'kick': 'C2',
+        'snare': 'D2',
+        'snare_rimshot': 'E2',
+        'snare_buzz': 'D#2',
+        'hihat_closed': 'F#2',
+        'hihat_open': 'A#2',
+        'hihat_pedal': 'G#2',
+        'tom': 'G2',
+        'crash': 'C#3',
+        'ride': 'D#3',
+        // Aliases
+        'hihat': 'F#2',  // Default to closed
+    };
+
+    const lowerName = noteName.toLowerCase();
+    return drumNameMap[lowerName] || noteName; // Return as-is if not a drum name
 }
 
 // Error handling

@@ -45,6 +45,15 @@ class IR(BaseModel):
 
 # ----- Request / Response ----- #
 
+class GenerateTrackRequest(BaseModel):
+    """Request for LLM-based track generation"""
+    dsl_code: str                       # Current DSL code from editor
+    track_type: str                     # bass, chords, pad, melody, counterMelody, arpeggio, drums
+    genre: str                          # pop, jazz, electronic, etc.
+    custom_request: Optional[str] = None  # Additional user instructions
+    creativity: Optional[float] = 0.7    # Creativity level 0.0-1.0
+    complexity: Optional[str] = "medium"  # Complexity level: simple, medium, complex
+
 class RunBody(BaseModel):
     code: Optional[str] = None   # DSL string
     ir: Optional[IR] = None      # JSON IR

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, JSX } from "react";
+import { useState, useRef, useEffect, useMemo, JSX } from "react";
 import { ParsedTrack } from "@/lib/dslParser";
 import {
   getTempoFromDSL,
@@ -8,6 +8,8 @@ import {
   secondsToBeats,
   getGridSubdivision,
   pitchToNote,
+  pitchToDrumName,
+  isDrumTrack,
   parseNotesFromDSL
 } from "./timelineHelpers";
 import {
@@ -28,6 +30,7 @@ import {
   CopiedNotes,
   SNAP_OPTIONS
 } from "./types";
+import { Mic, Drum } from "lucide-react";
 
 interface TimelineProps {
   tracks: ParsedTrack[];
@@ -41,6 +44,11 @@ interface TimelineProps {
   loopStart?: number;
   loopEnd?: number;
   onLoopChange?: (start: number, end: number) => void;
+  onPlaybackStart?: () => void;
+  onPlaybackStop?: () => void;
+  onMelodyGenerated?: (ir: any) => void;
+  onCompile?: () => Promise<void>;
+  executableCode?: string;
 }
 
 export function Timeline({
@@ -54,7 +62,12 @@ export function Timeline({
   loopEnabled = false,
   loopStart = 0,
   loopEnd = 4,
-  onLoopChange
+  onLoopChange,
+  onPlaybackStart,
+  onPlaybackStop,
+  onMelodyGenerated,
+  onCompile,
+  executableCode
 }: TimelineProps) {
   const [zoom, setZoom] = useState(50);
   const [selectedNotes, setSelectedNotes] = useState<SelectedNote[]>([]);
@@ -72,6 +85,15 @@ export function Timeline({
   const [copiedNotes, setCopiedNotes] = useState<CopiedNotes | null>(null);
 
   const tempo = getTempoFromDSL(dslCode);
+
+  // Memoize parsed notes to prevent expensive re-parsing on every render
+  const parsedNotesMap = useMemo(() => {
+    const map = new Map<string, TimelineNote[]>();
+    tracks.forEach(track => {
+      map.set(track.id, parseNotesFromDSL(dslCode, track.id, tempo));
+    });
+    return map;
+  }, [dslCode, tracks, tempo]);
 
   // Clear visual state only AFTER DSL has been updated with the correct position
   useEffect(() => {
@@ -365,11 +387,13 @@ export function Timeline({
     }
   }, [currentTime, isPlaying, zoom, tempo]);
 
-  const maxDuration = tracks.reduce((max, track) => {
-    const notes = parseNotesFromDSL(dslCode, track.id, tempo);
-    const trackDuration = notes.reduce((sum, note) => Math.max(sum, note.start + note.duration), 0);
-    return Math.max(max, trackDuration);
-  }, 10);
+  const maxDuration = useMemo(() => {
+    return tracks.reduce((max, track) => {
+      const notes = parsedNotesMap.get(track.id) || [];
+      const trackDuration = notes.reduce((sum, note) => Math.max(sum, note.start + note.duration), 0);
+      return Math.max(max, trackDuration);
+    }, 10);
+  }, [tracks, parsedNotesMap]);
 
   const totalWidth = (maxDuration + 4) * zoom;
 
@@ -387,7 +411,10 @@ export function Timeline({
       )}
 
       <div className="flex-none bg-gray-900 border-b border-white/10 p-4 flex items-center justify-between">
-        <h3 className="text-white font-semibold">Timeline Editor</h3>
+        <div className="flex items-center gap-3">
+          <h3 className="text-white font-semibold">Timeline Editor</h3>
+        </div>
+
         <div className="flex items-center gap-4">
           <div className="text-xs text-gray-400">
             {selectedNotes.length > 0 && `Press Delete to remove ${selectedNotes.length} note${selectedNotes.length > 1 ? 's' : ''}`}
@@ -487,8 +514,43 @@ export function Timeline({
               {(() => {
                 const { subdivision } = getGridSubdivision(zoom, snapValue, snapEnabled);
                 const totalBeats = Math.ceil(maxDuration);
-                const markers: JSX.Element[] = [];
 
+                // CSS grid background
+                const gridBackground = (
+                  <div
+                    className="absolute inset-0 pointer-events-none"
+                    style={{
+                      backgroundImage: `
+                        repeating-linear-gradient(
+                          90deg,
+                          rgb(107, 114, 128) 0px,
+                          rgb(107, 114, 128) 2px,
+                          transparent 2px,
+                          transparent ${4 * zoom}px
+                        ),
+                        repeating-linear-gradient(
+                          90deg,
+                          rgb(75, 85, 99) 0px,
+                          rgb(75, 85, 99) 1px,
+                          transparent 1px,
+                          transparent ${subdivision < 1 ? zoom : 4 * zoom}px
+                        ),
+                        repeating-linear-gradient(
+                          90deg,
+                          rgba(55, 65, 81, 0.5) 0px,
+                          rgba(55, 65, 81, 0.5) 1px,
+                          transparent 1px,
+                          transparent ${subdivision * zoom}px
+                        )
+                      `,
+                      backgroundSize: `${totalWidth}px 100%`,
+                      backgroundPosition: '0 0'
+                    }}
+                  />
+                );
+
+                // Only create JSX for measure/beat labels (not grid lines!)
+                const labels: JSX.Element[] = [];
                 for (let beat = 0; beat <= totalBeats; beat += subdivision) {
                   const roundedBeat = Math.round(beat / subdivision) * subdivision;
                   const bar = Math.floor(roundedBeat / 4) + 1;
@@ -496,80 +558,76 @@ export function Timeline({
                   const isMeasureStart = Math.abs(roundedBeat % 4) < 0.001;
                   const isBeatStart = Math.abs(roundedBeat % 1) < 0.001;
 
-                  let borderClass = '';
-                  let labelContent = null;
-
                   if (isMeasureStart) {
-                    borderClass = 'border-l-2 border-gray-500';
-                    labelContent = (
-                      <span className="text-xs font-bold text-gray-200 absolute top-0.5 left-1">
+                    labels.push(
+                      <span
+                        key={beat}
+                        className="text-xs font-bold text-gray-200 absolute top-0.5 pointer-events-none"
+                        style={{ left: `${beat * zoom + 4}px` }}
+                      >
                         {bar}
                       </span>
                     );
                   } else if (isBeatStart && subdivision < 1) {
-                    borderClass = 'border-l border-gray-600';
-                    labelContent = (
-                      <span className="text-xs text-gray-400 absolute top-0.5 left-1">
+                    labels.push(
+                      <span
+                        key={beat}
+                        className="text-xs text-gray-400 absolute top-0.5 pointer-events-none"
+                        style={{ left: `${beat * zoom + 4}px` }}
+                      >
                         {Math.floor(beatInBar) + 1}
                       </span>
                     );
-                  } else {
-                    borderClass = 'border-l border-gray-700/50';
                   }
-
-                  markers.push(
-                    <div
-                      key={beat}
-                      className={`absolute top-0 h-full ${borderClass}`}
-                      style={{ left: `${beat * zoom}px` }}
-                    >
-                      {labelContent}
-                    </div>
-                  );
                 }
 
-                return markers;
+                return (
+                  <>
+                    {gridBackground}
+                    {labels}
+                  </>
+                );
               })()}
             </div>
 
             {/* Track timelines */}
             {tracks.map((track) => {
-              const notes = parseNotesFromDSL(dslCode, track.id, tempo);
+              const notes = parsedNotesMap.get(track.id) || [];
+              const { subdivision } = getGridSubdivision(zoom, snapValue, snapEnabled);
 
               return (
                 <div key={track.id} className="relative h-20 bg-gray-950 border-b border-white/5">
-                  {/* Grid lines */}
-                  {(() => {
-                    const { subdivision } = getGridSubdivision(zoom, snapValue, snapEnabled);
-                    const totalBeats = Math.ceil(maxDuration);
-                    const gridLines: JSX.Element[] = [];
-
-                    for (let beat = 0; beat <= totalBeats; beat += subdivision) {
-                      const roundedBeat = Math.round(beat / subdivision) * subdivision;
-                      const isMeasureStart = Math.abs(roundedBeat % 4) < 0.001;
-                      const isBeatStart = Math.abs(roundedBeat % 1) < 0.001;
-
-                      let borderClass = '';
-
-                      if (isMeasureStart) {
-                        borderClass = 'border-l border-gray-700';
-                      } else if (isBeatStart && subdivision < 1) {
-                        borderClass = 'border-l border-gray-800/70';
-                      } else {
-                        borderClass = 'border-l border-gray-800/40';
-                      }
-
-                      gridLines.push(
-                        <div
-                          key={beat}
-                          className={`absolute top-0 h-full ${borderClass}`}
-                          style={{ left: `${beat * zoom}px` }}
-                        />
-                      );
-                    }
-
-                    return gridLines;
-                  })()}
+                  {/* Grid lines - CSS background pattern (no DOM elements!) */}
+                  <div
+                    className="absolute inset-0 pointer-events-none"
+                    style={{
+                      backgroundImage: `
+                        repeating-linear-gradient(
+                          90deg,
+                          rgb(55, 65, 81) 0px,
+                          rgb(55, 65, 81) 1px,
+                          transparent 1px,
+                          transparent ${4 * zoom}px
+                        ),
+                        repeating-linear-gradient(
+                          90deg,
+                          rgba(55, 65, 81, 0.7) 0px,
+                          rgba(55, 65, 81, 0.7) 1px,
+                          transparent 1px,
+                          transparent ${subdivision < 1 ? zoom : 4 * zoom}px
+                        ),
+                        repeating-linear-gradient(
+                          90deg,
+                          rgba(55, 65, 81, 0.4) 0px,
+                          rgba(55, 65, 81, 0.4) 1px,
+                          transparent 1px,
+                          transparent ${subdivision * zoom}px
+                        )
+                      `,
+                      backgroundSize: `${totalWidth}px 100%`,
+                      backgroundPosition: '0 0'
+                    }}
+                  />
 
                   {/* Notes */}
                   {notes.map((note, idx) => (
@@ -612,7 +670,10 @@ export function Timeline({
                       onMouseDown={(e) => handleNoteMouseDown(e, track.id, idx, false)}
                     >
                       <div className="text-xs text-white p-1 truncate pointer-events-none">
-                        {pitchToNote(note.pitch)}{note.isChord ? ' ♫' : ''}
+                        {isDrumTrack(track.id, track.instrument || undefined)
+                          ? pitchToDrumName(note.pitch)
+                          : pitchToNote(note.pitch)
+                        }{note.isChord ? ' ♫' : ''}
                       </div>
 
                       {/* Resize handle - hidden for loop notes */}

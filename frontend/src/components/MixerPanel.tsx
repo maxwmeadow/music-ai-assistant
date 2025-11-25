@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect, memo } from "react";
 import { ParsedTrack } from "@/lib/dslParser";
 import { Music } from "lucide-react";
 
@@ -9,7 +9,7 @@ interface MixerPanelProps {
   onVolumeChange: (trackId: string, volume: number) => void;
 }
 
-export function MixerPanel({ tracks, onVolumeChange }: MixerPanelProps) {
+export const MixerPanel = memo(function MixerPanel({ tracks, onVolumeChange }: MixerPanelProps) {
   const [volumes, setVolumes] = useState<Record<string, number>>({});
   const [pans, setPans] = useState<Record<string, number>>({});
   const [mutes, setMutes] = useState<Record<string, boolean>>({});
@@ -487,4 +487,4 @@ export function MixerPanel({ tracks, onVolumeChange }: MixerPanelProps) {
       </div>
     </div>
   );
-}
+});
