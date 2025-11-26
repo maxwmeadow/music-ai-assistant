@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { X, Sparkles, Info, Lightbulb } from 'lucide-react';
+import { X, Sparkles, Info, Lightbulb, Music, Piano, Waves, Music2, Music3, Activity, Circle } from 'lucide-react';
 
 export interface ArrangementConfig {
   trackType: string;
@@ -19,49 +19,49 @@ interface ArrangerModalProps {
   onGenerate: (config: ArrangementConfig) => Promise<void>;
 }
 
-// Track type definitions
+// Track type definitions with icon components
 const TRACK_TYPES = [
   {
     value: "bass",
     label: "Bass",
     description: "Low-end foundation",
-    icon: "🎸"
+    icon: Music
   },
   {
     value: "chords",
     label: "Chords",
     description: "Harmonic support",
-    icon: "🎹"
+    icon: Piano
   },
   {
     value: "pad",
     label: "Pad",
     description: "Atmospheric texture",
-    icon: "🌊"
+    icon: Waves
   },
   {
     value: "melody",
     label: "Melody",
     description: "Lead line",
-    icon: "🎵"
+    icon: Music2
   },
   {
     value: "counterMelody",
     label: "Counter",
     description: "Secondary melody",
-    icon: "🎶"
+    icon: Music3
   },
   {
     value: "arpeggio",
     label: "Arp",
     description: "Broken chords",
-    icon: "✨"
+    icon: Activity
   },
   {
     value: "drums",
     label: "Drums",
     description: "Percussion",
-    icon: "🥁"
+    icon: Circle
   }
 ];
 
@@ -138,8 +138,8 @@ export default function ArrangerModal({
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700 bg-gray-900/95">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-purple-600/20 rounded-lg flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-purple-400" />
+            <div className="w-9 h-9 bg-blue-600/20 rounded-lg flex items-center justify-center">
+              <Sparkles className="w-4 h-4 text-blue-400" />
             </div>
             <div>
               <h2 className="text-lg font-bold text-white">AI Arranger</h2>
@@ -165,25 +165,30 @@ export default function ArrangerModal({
                 TRACK TYPE
               </label>
               <div className="grid grid-cols-4 gap-1.5">
-                {TRACK_TYPES.map(type => (
-                  <button
-                    key={type.value}
-                    onClick={() => setTrackType(type.value)}
-                    disabled={isGenerating}
-                    className={`
-                      p-2 rounded-md border text-center transition-all group
-                      ${trackType === type.value
-                        ? 'bg-purple-600/20 border-purple-500 text-white'
-                        : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-purple-500/50'
-                      }
-                      disabled:opacity-50 disabled:cursor-not-allowed
-                    `}
-                    title={type.description}
-                  >
-                    <div className="text-lg mb-0.5">{type.icon}</div>
-                    <div className="text-xs font-medium">{type.label}</div>
-                  </button>
-                ))}
+                {TRACK_TYPES.map(type => {
+                  const IconComponent = type.icon;
+                  return (
+                    <button
+                      key={type.value}
+                      onClick={() => setTrackType(type.value)}
+                      disabled={isGenerating}
+                      className={`
+                        p-2 rounded-md border text-center transition-all group
+                        ${trackType === type.value
+                          ? 'bg-blue-600/20 border-blue-500 text-white'
+                          : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-blue-500/50'
+                        }
+                        disabled:opacity-50 disabled:cursor-not-allowed
+                      `}
+                      title={type.description}
+                    >
+                      <div className="flex items-center justify-center mb-0.5">
+                        <IconComponent className={`w-5 h-5 ${trackType === type.value ? 'text-blue-400' : 'text-gray-400'}`} />
+                      </div>
+                      <div className="text-xs font-medium">{type.label}</div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -201,8 +206,8 @@ export default function ArrangerModal({
                     className={`
                       px-2 py-1.5 rounded-md border text-xs font-medium transition-all
                       ${genre === g.value
-                        ? 'bg-purple-600/20 border-purple-500 text-white'
-                        : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-purple-500/50'
+                        ? 'bg-blue-600/20 border-blue-500 text-white'
+                        : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-blue-500/50'
                       }
                       disabled:opacity-50 disabled:cursor-not-allowed
                     `}
@@ -221,7 +226,7 @@ export default function ArrangerModal({
                   placeholder="e.g., 'synthwave' or 'reggae'"
                   disabled={isGenerating}
                   className="w-full mt-2 bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-sm text-white
-                             placeholder:text-gray-500 focus:border-purple-500 focus:ring-1 focus:ring-purple-500
+                             placeholder:text-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500
                              outline-none disabled:opacity-50"
                 />
               )}
@@ -235,7 +240,7 @@ export default function ArrangerModal({
                   <label className="text-xs font-medium text-gray-400">
                     CREATIVITY
                   </label>
-                  <span className="text-xs font-semibold text-purple-400">
+                  <span className="text-xs font-semibold text-blue-400">
                     {creativityLabel.toUpperCase()}
                   </span>
                 </div>
@@ -250,9 +255,9 @@ export default function ArrangerModal({
                   className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer
                              [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5
                              [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full
-                             [&::-webkit-slider-thumb]:bg-purple-500 [&::-webkit-slider-thumb]:cursor-pointer
+                             [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:cursor-pointer
                              [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5
-                             [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-purple-500
+                             [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-blue-500
                              [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer
                              disabled:opacity-50 disabled:cursor-not-allowed"
                 />
@@ -279,8 +284,8 @@ export default function ArrangerModal({
                       className={`
                         px-2 py-1.5 rounded-md border text-xs font-medium transition-all
                         ${complexity === level
-                          ? 'bg-purple-600/20 border-purple-500 text-white'
-                          : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-purple-500/50'
+                          ? 'bg-blue-600/20 border-blue-500 text-white'
+                          : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-blue-500/50'
                         }
                         disabled:opacity-50 disabled:cursor-not-allowed
                       `}
@@ -309,7 +314,7 @@ export default function ArrangerModal({
                 rows={2}
                 disabled={isGenerating}
                 className="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-sm text-white
-                           placeholder:text-gray-500 focus:border-purple-500 focus:ring-1 focus:ring-purple-500
+                           placeholder:text-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500
                            outline-none resize-none disabled:opacity-50"
               />
             </div>
@@ -329,7 +334,7 @@ export default function ArrangerModal({
           {/* Right Panel - Order Summary */}
           <div className="w-72 bg-gray-800/30 border-l border-gray-700 p-5 flex flex-col">
             <div className="flex items-center gap-2 mb-4">
-              <Info className="w-4 h-4 text-purple-400" />
+              <Info className="w-4 h-4 text-blue-400" />
               <h3 className="text-sm font-semibold text-white">Generation Order</h3>
             </div>
 
@@ -337,9 +342,9 @@ export default function ArrangerModal({
               {/* Main Order */}
               <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg p-4">
                 <p className="text-sm text-gray-200 leading-relaxed">
-                  Generate a <span className="font-semibold text-purple-400">{creativityLabel}</span>{' '}
+                  Generate a <span className="font-semibold text-blue-400">{creativityLabel}</span>{' '}
                   <span className="font-semibold text-white">{selectedTrackType?.label.toLowerCase()}</span>{' '}
-                  with <span className="font-semibold text-purple-400">{complexity}</span> complexity in{' '}
+                  with <span className="font-semibold text-blue-400">{complexity}</span> complexity in{' '}
                   <span className="font-semibold text-white">{genreLabel}</span> style
                   {customRequest && <span>.</span>}
                 </p>
@@ -356,8 +361,11 @@ export default function ArrangerModal({
               <div className="space-y-2">
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-gray-500">Track Type</span>
-                  <span className="text-gray-300 font-medium flex items-center gap-1">
-                    <span>{selectedTrackType?.icon}</span>
+                  <span className="text-gray-300 font-medium flex items-center gap-1.5">
+                    {selectedTrackType?.icon && (() => {
+                      const IconComponent = selectedTrackType.icon;
+                      return <IconComponent className="w-3.5 h-3.5 text-blue-400" />;
+                    })()}
                     {selectedTrackType?.label}
                   </span>
                 </div>
@@ -369,11 +377,11 @@ export default function ArrangerModal({
                 </div>
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-gray-500">Creativity Level</span>
-                  <span className="text-purple-400 font-medium">{(creativity * 100).toFixed(0)}%</span>
+                  <span className="text-blue-400 font-medium">{(creativity * 100).toFixed(0)}%</span>
                 </div>
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-gray-500">Complexity</span>
-                  <span className="text-purple-400 font-medium capitalize">{complexity}</span>
+                  <span className="text-blue-400 font-medium capitalize">{complexity}</span>
                 </div>
               </div>
 
@@ -402,7 +410,7 @@ export default function ArrangerModal({
               <button
                 onClick={handleGenerate}
                 disabled={isGenerating || !canGenerate}
-                className="flex-1 px-3 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700
+                className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700
                            text-white text-sm rounded-md font-medium transition-colors flex items-center justify-center gap-2
                            disabled:cursor-not-allowed"
               >

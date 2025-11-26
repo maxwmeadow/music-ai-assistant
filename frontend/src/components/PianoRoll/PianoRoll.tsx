@@ -2,14 +2,33 @@
 
 import { useState, useRef, useEffect, JSX } from "react";
 import { ParsedTrack } from "@/lib/dslParser";
-
-interface PianoRollNote {
-  pitch: number;
-  start: number;
-  duration: number;
-  velocity: number;
-  isChord?: boolean;
-}
+import { SNAP_OPTIONS } from "@/components/Timeline/types";
+import {
+  PianoRollNote,
+  MIDI_MIN,
+  MIDI_MAX,
+  NOTE_HEIGHT,
+  PIANO_WIDTH,
+  INSTRUMENT_GAINS,
+  noteToPitch,
+  pitchToNote,
+  isBlackKey,
+  getGridSubdivision,
+  parseNotesFromDSL,
+  updateDSLWithNewNotes,
+  getInstrumentFromDSL,
+  buildSamplerUrls,
+  analyzeInstrumentGain,
+  getTempoFromDSL,
+  beatsToSeconds,
+  secondsToBeats,
+  snapToGrid,
+  timeToX,
+  xToTime,
+  pitchToY,
+  yToPitch,
+} from "./pianoRollHelpers";
+import { createNoteHandlers } from "./pianoRollHandlers";
 
 interface PianoRollProps {
   track: ParsedTrack;
@@ -17,56 +36,18 @@ interface PianoRollProps {
   onCodeChange: (newCode: string) => void;
   isPlaying: boolean;
   currentTime: number;
+  onCompile?: () => void;
+  onPlay?: () => void;
+  onStop?: () => void;
+  onSolo?: () => void;
+  isSoloed?: boolean;
+  isLoading?: boolean;
+  onSeek?: (time: number) => void;
 }
 
-const MIDI_MIN = 36; // C2
-const MIDI_MAX = 108; // C8 (full 88-key piano range)
-const NOTE_HEIGHT = 12; // pixels per semitone
-const PIANO_WIDTH = 60; // width of piano keys
-
-// Pre-calculated gain compensation map (in dB)
-// Target level: -12dB peak
-const INSTRUMENT_GAINS: Record<string, number> = {
-  // Pianos
-  'piano/steinway_grand': 0,
-  'piano/bechstein_1911_upright': 0,
-  'piano/fender_rhodes': 0,
-  'piano/experience_ny_steinway': 0,
-  // Harpsichords
-  'harpsichord/harpsichord_english': -10,
-  'harpsichord/harpsichord_flemish': -10,
-  'harpsichord/harpsichord_french': -10,
-  'harpsichord/harpsichord_italian': -15,
-  'harpsichord/harpsichord_unk': -10,
-  // Guitars
-  'guitar/rjs_guitar_palm_muted_softly_strings': -5,
-  'guitar/rjs_guitar_palm_muted_strings': -6,
-  'synth/lead/ld_the_stack_guitar_chug': 0,
-  'synth/lead/ld_the_stack_guitar': -1,
-  'guitar/rjs_guitar_new_strings': 0,
-  'guitar/rjs_guitar_old_strings': 4,
-  // Bass
-  'bass/funky_fingers': -10,
-  'bass/low_fat_bass': -5,
-  'bass/jp8000_sawbass': 2,
-  'bass/jp8000_tribass': 2,
-  // Strings
-  'strings/nfo_chamber_strings_longs': 0,
-  'strings/nfo_iso_celli_swells': 0,
-  'strings/nfo_iso_viola_swells': 0,
-  'strings/nfo_iso_violin_swells': 0,
-  // Brass
-  'brass/nfo_iso_brass_swells': 0,
-  // Winds
-  'winds/flute_violin': 0,
-  'winds/subtle_clarinet': 0,
-  'winds/decent_oboe': 0,
-  'winds/tenor_saxophone': 0,
-};
-
-
-export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime }: PianoRollProps) {
-  const [zoom, setZoom] = useState(50); // pixels per second
+export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime, onCompile, onPlay, onStop, onSolo, isSoloed, isLoading, onSeek }: PianoRollProps) {
+  // State
+  const [zoom, setZoom] = useState(50);
   const [selectedNotes, setSelectedNotes] = useState<Set<number>>(new Set());
   const [draggingNote, setDraggingNote] = useState<{
     noteIndex: number;
@@ -82,188 +63,32 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
   } | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawStart, setDrawStart] = useState<{ time: number; pitch: number } | null>(null);
-
-  // Box selection state
   const [isBoxSelecting, setIsBoxSelecting] = useState(false);
   const [boxStart, setBoxStart] = useState<{ x: number; y: number } | null>(null);
   const [boxEnd, setBoxEnd] = useState<{ x: number; y: number } | null>(null);
   const [potentialBoxSelect, setPotentialBoxSelect] = useState<{ x: number; y: number } | null>(null);
-
-  // Clipboard state
   const [clipboard, setClipboard] = useState<PianoRollNote[]>([]);
   const [clipboardOriginTime, setClipboardOriginTime] = useState<number>(0);
   const [mousePosition, setMousePosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [showPastePreview, setShowPastePreview] = useState(false);
-
-  const canvasRef = useRef<HTMLDivElement>(null);
-
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [snapValue, setSnapValue] = useState(0.25);
-
-  const getTempoFromDSL = (): number => {
-    const tempoMatch = dslCode.match(/tempo\((\d+)\)/);
-    return tempoMatch ? parseInt(tempoMatch[1]) : 120;
-  };
-
-  const beatsToSeconds = (beats: number): number => {
-    const tempo = getTempoFromDSL();
-    return (beats * 60) / tempo;
-  };
-
-  const secondsToBeats = (seconds: number): number => {
-    const tempo = getTempoFromDSL();
-    return (seconds * tempo) / 60;
-  };
-
-  const snapToGrid = (beats: number): number => {
-    if (!snapEnabled) return beats;
-    return Math.round(beats / snapValue) * snapValue;
-  };
-
-  /**
-   * Determines grid subdivision level based on zoom
-   * Returns: { subdivision: number, showSubdivisions: boolean }
-   */
-  const getGridSubdivision = (zoom: number): { subdivision: number, showSubdivisions: boolean, showSixteenths: boolean } => {
-    // zoom is pixels per beat
-
-    if (zoom < 60) {
-      // Very zoomed out - only show beats (quarters)
-      return { subdivision: 1, showSubdivisions: false, showSixteenths: false };
-    } else if (zoom < 120) {
-      // Medium zoom - show eighths
-      return { subdivision: 0.5, showSubdivisions: true, showSixteenths: false };
-    } else {
-      // Very zoomed in - show sixteenths
-      return { subdivision: 0.25, showSubdivisions: true, showSixteenths: true };
-    }
-  };
-
-  const parseNotesFromDSL = (trackId: string): PianoRollNote[] => {
-    const trackMatch = dslCode.match(new RegExp(`track\\("${trackId}"\\)\\s*{([^}]+)}`, 's'));
-    if (!trackMatch) return [];
-
-    const trackContent = trackMatch[1];
-    const notes: PianoRollNote[] = [];
-
-    const noteMatches = trackContent.matchAll(/note\("([^"]+)",\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g);
-    for (const match of noteMatches) {
-      const [, noteName, start, duration, velocity] = match;
-      const pitch = noteToPitch(noteName);
-
-      notes.push({
-        pitch,
-        start: secondsToBeats(parseFloat(start)), // Convert to beats
-        duration: secondsToBeats(parseFloat(duration)), // Convert to beats
-        velocity: parseFloat(velocity)
-      });
-    }
-
-    const chordMatches = trackContent.matchAll(/chord\(\[([^\]]+)\],\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g);
-    for (const match of chordMatches) {
-      const [, notesStr, start, duration, velocity] = match;
-      const chordNotes = notesStr.split(',').map(n => n.trim().replace(/"/g, ''));
-
-      chordNotes.forEach(noteName => {
-        const pitch = noteToPitch(noteName);
-        notes.push({
-          pitch,
-          start: secondsToBeats(parseFloat(start)), // Convert to beats
-          duration: secondsToBeats(parseFloat(duration)), // Convert to beats
-          velocity: parseFloat(velocity),
-          isChord: true
-        });
-      });
-    }
-
-    return notes;
-  };
-
-  const noteToPitch = (noteName: string): number => {
-    const noteMap: Record<string, number> = {
-      'C': 0, 'C#': 1, 'D': 2, 'D#': 3, 'E': 4, 'F': 5,
-      'F#': 6, 'G': 7, 'G#': 8, 'A': 9, 'A#': 10, 'B': 11
-    };
-    const match = noteName.match(/([A-G]#?)(\d+)/);
-    if (!match) return 60;
-    const [, note, octave] = match;
-    return (parseInt(octave) + 1) * 12 + noteMap[note];
-  };
-
-  const pitchToNote = (pitch: number): string => {
-    const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-    const octave = Math.floor(pitch / 12) - 1;
-    const note = notes[pitch % 12];
-    return `${note}${octave}`;
-  };
-
-  const isBlackKey = (pitch: number): boolean => {
-    const semitone = pitch % 12;
-    return [1, 3, 6, 8, 10].includes(semitone); // C#, D#, F#, G#, A#
-  };
-
-  const updateDSLWithNewNotes = (updatedNotes: PianoRollNote[]) => {
-    const trackMatch = dslCode.match(new RegExp(`(track\\("${track.id}"\\)\\s*{)([^}]+)(})`, 's'));
-    if (!trackMatch) return;
-
-    const [fullMatch, opening, , closing] = trackMatch;
-    const instrumentMatch = trackMatch[2].match(/instrument\("([^"]+)"\)/);
-    const instrumentLine = instrumentMatch ? `  instrument("${instrumentMatch[1]}")\n` : '';
-
-    const notesByTime = new Map<string, PianoRollNote[]>();
-    updatedNotes.forEach(note => {
-      const timeKey = note.start.toFixed(3);
-      if (!notesByTime.has(timeKey)) {
-        notesByTime.set(timeKey, []);
-      }
-      notesByTime.get(timeKey)!.push(note);
-    });
-
-    const noteLines: string[] = [];
-    Array.from(notesByTime.entries())
-      .sort(([a], [b]) => parseFloat(a) - parseFloat(b))
-      .forEach(([timeStr, notes]) => {
-        if (notes.length === 1) {
-          const note = notes[0];
-          const noteName = pitchToNote(note.pitch);
-          // Convert beats back to seconds for DSL
-          const startSeconds = beatsToSeconds(note.start);
-          const durationSeconds = beatsToSeconds(note.duration);
-          noteLines.push(
-            `  note("${noteName}", ${startSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${note.velocity.toFixed(1)})`
-          );
-        } else {
-          const noteNames = notes.map(n => `"${pitchToNote(n.pitch)}"`).join(', ');
-          const avgDuration = notes.reduce((sum, n) => sum + n.duration, 0) / notes.length;
-          const avgVelocity = notes.reduce((sum, n) => sum + n.velocity, 0) / notes.length;
-          // Convert beats back to seconds for DSL
-          const startSeconds = beatsToSeconds(notes[0].start);
-          const durationSeconds = beatsToSeconds(avgDuration);
-          noteLines.push(
-            `  chord([${noteNames}], ${startSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${avgVelocity.toFixed(1)})`
-          );
-        }
-      });
-
-    const newTrackContent = `${opening}\n${instrumentLine}${noteLines.join('\n')}\n${closing}`;
-    const newDSL = dslCode.replace(fullMatch, newTrackContent);
-    onCodeChange(newDSL);
-  };
-
   const [samplerLoaded, setSamplerLoaded] = useState(false);
   const [availableNotes, setAvailableNotes] = useState<Set<number>>(new Set());
+  const [editingVelocity, setEditingVelocity] = useState<{
+    noteIndex: number;
+    startY: number;
+    initialVelocity: number;
+  } | null>(null);
+  const [hoveredVelocityNote, setHoveredVelocityNote] = useState<number | null>(null);
+
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const velocityCanvasRef = useRef<HTMLDivElement>(null);
   const samplerRef = useRef<any>(null);
 
-  // Parse instrument from DSL code directly (not from compiled track)
-  const getInstrumentFromDSL = (): string | null => {
-    const trackMatch = dslCode.match(new RegExp(`track\\s*\\(\\s*["']${track.id}["']\\s*\\)\\s*\\{([\\s\\S]*?)\\}`, 'm'));
-    if (!trackMatch) return null;
-    const trackContent = trackMatch[1];
-    const instrumentMatch = trackContent.match(/instrument\s*\(\s*["']([^"']+)["']\s*\)/);
-    return instrumentMatch ? instrumentMatch[1] : null;
-  };
-
-  const dslInstrument = getInstrumentFromDSL();
+  // Get tempo from DSL
+  const tempo = getTempoFromDSL(dslCode);
+  const dslInstrument = getInstrumentFromDSL(dslCode, track.id);
 
   // Load instrument sampler for preview
   useEffect(() => {
@@ -357,86 +182,13 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
     }
   };
 
-  // Add the gain analysis function (same as in server.js)
-  const analyzeInstrumentGain = async (urls: Record<string, string>, baseUrl: string): Promise<number> => {
-    try {
-      const Tone = await import('tone');
-      const sampleKeys = Object.keys(urls).slice(0, Math.min(3, Object.keys(urls).length));
-      if (sampleKeys.length === 0) return 0;
-
-      const audioContext = Tone.context.rawContext;
-      const peakLevels: number[] = [];
-
-      for (const key of sampleKeys) {
-        try {
-          const sampleUrl = baseUrl + urls[key];
-          const response = await fetch(sampleUrl);
-          const arrayBuffer = await response.arrayBuffer();
-          const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-
-          let maxPeak = 0;
-          for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
-            const channelData = audioBuffer.getChannelData(channel);
-            for (let i = 0; i < channelData.length; i++) {
-              maxPeak = Math.max(maxPeak, Math.abs(channelData[i]));
-            }
-          }
-
-          peakLevels.push(maxPeak);
-          console.log(`[PianoRoll Gain] Sample ${key}: peak = ${maxPeak.toFixed(6)} (${(20 * Math.log10(maxPeak)).toFixed(1)}dB)`);
-        } catch (err) {
-          console.warn(`[PianoRoll Gain] Failed to analyze ${key}:`, err);
-        }
-      }
-
-      if (peakLevels.length === 0) return 0;
-
-      const avgPeak = peakLevels.reduce((sum, p) => sum + p, 0) / peakLevels.length;
-      const avgPeakDb = 20 * Math.log10(avgPeak);
-      const targetDb = -6;
-      const neededGain = targetDb - avgPeakDb;
-
-      console.log(`[PianoRoll Gain] Average peak: ${avgPeak.toFixed(6)} (${avgPeakDb.toFixed(1)}dB)`);
-      console.log(`[PianoRoll Gain] Recommended gain: ${neededGain.toFixed(1)}dB`);
-
-      return Math.max(-20, Math.min(60, neededGain));
-    } catch (error) {
-      console.error('[PianoRoll Gain] Error:', error);
-      return 0;
-    }
-  };
-
-  const buildSamplerUrls = (mapping: any, instrumentPath: string, cdnBase: string) => {
-    const urls: Record<string, string> = {};
-    const baseUrl = `${cdnBase}/samples/${instrumentPath}/`;
-
-    if (mapping.velocity_layers) {
-      for (const [note, layers] of Object.entries(mapping.velocity_layers)) {
-        const layerArray = layers as any[];
-
-        // Get the lokey/hikey range from the first layer to understand coverage
-        const sampleLayer = layerArray.find((l: any) =>
-          l.file.includes('Sustains') || l.file.includes('sus')
-        ) || layerArray[0];
-
-        if (!sampleLayer) continue;
-
-        // Get the pitch_center - this is what note the sample actually is
-        const pitchCenter = sampleLayer.pitch_center;
-
-        if (pitchCenter !== undefined) {
-          const noteName = pitchToNote(pitchCenter);
-          urls[noteName] = sampleLayer.file.split('/').map(encodeURIComponent).join('/');
-        }
-      }
-    } else if (mapping.samples) {
-      for (const [note, file] of Object.entries(mapping.samples)) {
-        urls[note] = (file as string).split('/').map(encodeURIComponent).join('/');
-      }
-    }
-
-    return { urls, baseUrl };
-  };
+  // Helper wrappers that close over component state for cleaner usage
+  const parseNotes = () => parseNotesFromDSL(dslCode, track.id, tempo);
+  const updateNotes = (notes: PianoRollNote[]) =>
+    updateDSLWithNewNotes(dslCode, track.id, notes, tempo, onCodeChange);
+  const snapTo = (beats: number) => snapToGrid(beats, snapValue, snapEnabled);
+  const beatToX = (beats: number) => timeToX(beats, zoom);
+  const xToBeat = (x: number) => xToTime(x, zoom);
 
   const playPreviewNote = async (pitch: number) => {
     if (!samplerRef.current || !samplerLoaded || !availableNotes.has(pitch)) return;
@@ -458,40 +210,33 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
     playPreviewNote(pitch);
   };
 
-  const timeToX = (beats: number) => beats * zoom;
-  const xToTime = (x: number) => x / zoom;
-  const pitchToY = (pitch: number) => (MIDI_MAX - pitch) * NOTE_HEIGHT;
-  const yToPitch = (y: number) => Math.round(MIDI_MAX - y / NOTE_HEIGHT);
-
-  const SNAP_OPTIONS = [
-    { label: '1/4 (Whole)', value: 4 },
-    { label: '1/2 (Half)', value: 2 },
-    { label: '1 (Quarter)', value: 1 },
-    { label: '1/2 (8th)', value: 0.5 },
-    { label: '1/4 (16th)', value: 0.25 },
-    { label: '1/8 (32nd)', value: 0.125 },
-  ];
-
   const handleCanvasClick = (e: React.MouseEvent) => {
     if (!canvasRef.current) return;
 
     const rect = canvasRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left - PIANO_WIDTH;
-    const y = e.clientY - rect.top;
+    const x = e.clientX - rect.left - PIANO_WIDTH + canvasRef.current.scrollLeft;
+    const y = e.clientY - rect.top + canvasRef.current.scrollTop;
 
     if (x < 0) return;
 
     // Check if clicking on an existing note
-    const notes = parseNotesFromDSL(track.id);
+    const notes = parseNotes();
     const clickedNoteIndex = notes.findIndex(note => {
-      const noteX = timeToX(note.start);
+      const noteX = beatToX(note.start);
       const noteY = pitchToY(note.pitch);
-      const noteWidth = timeToX(note.duration);
+      const noteWidth = beatToX(note.duration);
       return x >= noteX && x <= noteX + noteWidth &&
         y >= noteY && y <= noteY + NOTE_HEIGHT;
     });
 
     if (clickedNoteIndex !== -1) {
+      const clickedNote = notes[clickedNoteIndex];
+
+      // Don't allow selection of loop-generated notes
+      if (clickedNote.isFromLoop) {
+        return;
+      }
+
       // Clicked on a note - handle selection
       if (e.shiftKey) {
         // Shift+click: toggle note in selection
@@ -526,8 +271,8 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
     if (!canvasRef.current) return;
 
     const rect = canvasRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left - PIANO_WIDTH;
-    const y = e.clientY - rect.top;
+    const x = e.clientX - rect.left - PIANO_WIDTH + canvasRef.current.scrollLeft;
+    const y = e.clientY - rect.top + canvasRef.current.scrollTop;
 
     // Track mouse position for paste-at-cursor functionality
     setMousePosition({ x, y });
@@ -553,7 +298,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
       setBoxEnd({ x, y });
 
       // Calculate which notes are in the selection box
-      const notes = parseNotesFromDSL(track.id);
+      const notes = parseNotes();
       const minX = Math.min(boxStart.x, x);
       const maxX = Math.max(boxStart.x, x);
       const minY = Math.min(boxStart.y, y);
@@ -561,9 +306,12 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
 
       const notesInBox = new Set<number>();
       notes.forEach((note, idx) => {
-        const noteX = timeToX(note.start);
+        // Skip loop-generated notes - they can't be selected
+        if (note.isFromLoop) return;
+
+        const noteX = beatToX(note.start);
         const noteY = pitchToY(note.pitch);
-        const noteWidth = timeToX(note.duration);
+        const noteWidth = beatToX(note.duration);
         const noteHeight = NOTE_HEIGHT;
 
         // Check if note overlaps with selection box
@@ -581,7 +329,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
 
     // Note drawing feedback
     if (isDrawing && drawStart) {
-      const currentTime = xToTime(x);
+      const currentTime = xToBeat(x);
       // Visual feedback during draw (could add a preview note here)
     }
   };
@@ -590,8 +338,8 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
     if (!canvasRef.current) return;
 
     const rect = canvasRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left - PIANO_WIDTH;
-    const y = e.clientY - rect.top;
+    const x = e.clientX - rect.left - PIANO_WIDTH + canvasRef.current.scrollLeft;
+    const y = e.clientY - rect.top + canvasRef.current.scrollTop;
 
     // End box selection
     if (isBoxSelecting) {
@@ -604,11 +352,11 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
     // If there was a potential box select that never activated (single click on empty space)
     // Create a new note at that position
     if (potentialBoxSelect && x >= 0) {
-      const clickedBeats = xToTime(potentialBoxSelect.x);
-      const snappedBeats = snapToGrid(clickedBeats);
+      const clickedBeats = xToBeat(potentialBoxSelect.x);
+      const snappedBeats = snapTo(clickedBeats);
       const pitch = yToPitch(potentialBoxSelect.y);
 
-      const notes = parseNotesFromDSL(track.id);
+      const notes = parseNotes();
       notes.push({
         pitch,
         start: snappedBeats,
@@ -616,7 +364,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
         velocity: 0.8
       });
 
-      updateDSLWithNewNotes(notes);
+      updateNotes(notes);
       setPotentialBoxSelect(null);
       return;
     }
@@ -626,7 +374,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
 
     // Note drawing
     if (isDrawing && drawStart) {
-      const endBeats = xToTime(x);
+      const endBeats = xToBeat(x);
 
       // Calculate the raw drag distance
       const dragDistance = Math.abs(endBeats - drawStart.time);
@@ -646,12 +394,12 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
         console.log('Using snap duration:', duration);
       } else {
         // User dragged - snap the end point and calculate duration
-        const snappedEndBeats = snapToGrid(endBeats);
+        const snappedEndBeats = snapTo(endBeats);
         duration = Math.max(snapValue, Math.abs(snappedEndBeats - drawStart.time));
         console.log('Using dragged duration:', duration);
       }
 
-      const notes = parseNotesFromDSL(track.id);
+      const notes = parseNotes();
       notes.push({
         pitch: drawStart.pitch,
         start: drawStart.time,
@@ -659,7 +407,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
         velocity: 0.8
       });
 
-      updateDSLWithNewNotes(notes);
+      updateNotes(notes);
       setIsDrawing(false);
       setDrawStart(null);
     }
@@ -667,7 +415,13 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
 
   const handleNoteMouseDown = (e: React.MouseEvent, noteIndex: number, isResize: boolean) => {
     e.stopPropagation();
-    const notes = parseNotesFromDSL(track.id);
+    const notes = parseNotes();
+    const note = notes[noteIndex];
+
+    // Prevent editing loop-generated notes
+    if (note.isFromLoop) {
+      return;
+    }
 
     // If shift-clicking, toggle selection
     if (e.shiftKey) {
@@ -713,9 +467,9 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
       const deltaBeats = deltaX / zoom;
       const deltaPitch = Math.round(-deltaY / NOTE_HEIGHT);
 
-      const notes = parseNotesFromDSL(track.id);
+      const notes = parseNotes();
       const rawStart = draggingNote.initialStart + deltaBeats;
-      const snappedStart = snapToGrid(Math.max(0, rawStart));
+      const snappedStart = snapTo(Math.max(0, rawStart));
 
       notes[draggingNote.noteIndex].start = snappedStart;
       notes[draggingNote.noteIndex].pitch = Math.max(
@@ -723,18 +477,18 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
         Math.min(MIDI_MAX, draggingNote.initialPitch + deltaPitch)
       );
 
-      updateDSLWithNewNotes(notes);
+      updateNotes(notes);
     } else if (resizingNote) {
       const deltaX = e.clientX - resizingNote.startX;
       const deltaBeats = deltaX / zoom;
 
-      const notes = parseNotesFromDSL(track.id);
+      const notes = parseNotes();
       const rawDuration = resizingNote.initialDuration + deltaBeats;
-      const snappedDuration = Math.max(snapValue, snapToGrid(rawDuration));
+      const snappedDuration = Math.max(snapValue, snapTo(rawDuration));
 
       notes[resizingNote.noteIndex].duration = snappedDuration;
 
-      updateDSLWithNewNotes(notes);
+      updateNotes(notes);
     }
   };
 
@@ -746,17 +500,17 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
   const handleDeleteNote = () => {
     if (selectedNotes.size === 0) return;
 
-    const notes = parseNotesFromDSL(track.id);
+    const notes = parseNotes();
     // Filter out selected notes (iterate in reverse to avoid index issues)
     const filteredNotes = notes.filter((_, idx) => !selectedNotes.has(idx));
-    updateDSLWithNewNotes(filteredNotes);
+    updateNotes(filteredNotes);
     setSelectedNotes(new Set());
   };
 
   const handleCopy = () => {
     if (selectedNotes.size === 0) return;
 
-    const notes = parseNotesFromDSL(track.id);
+    const notes = parseNotes();
     const selectedNotesList = Array.from(selectedNotes).map(idx => notes[idx]);
 
     // Find earliest start time to use as origin
@@ -774,10 +528,10 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
   const handlePaste = () => {
     if (clipboard.length === 0) return;
 
-    const notes = parseNotesFromDSL(track.id);
+    const notes = parseNotes();
 
     // Paste at mouse position (snapped to grid)
-    const pasteBeats = snapToGrid(xToTime(mousePosition.x));
+    const pasteBeats = snapTo(xToBeat(mousePosition.x));
 
     // Calculate offset from original position
     const timeOffset = pasteBeats - clipboardOriginTime;
@@ -790,7 +544,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
 
     // Add to existing notes
     notes.push(...newNotes);
-    updateDSLWithNewNotes(notes);
+    updateNotes(notes);
 
     // Select the newly pasted notes
     const startIndex = notes.length - newNotes.length;
@@ -806,7 +560,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
   };
 
   const handleQuantize = (gridValue: number) => {
-    const notes = parseNotesFromDSL(track.id);
+    const notes = parseNotes();
 
     // Quantize selected notes (or all if none selected)
     const indicesToQuantize = selectedNotes.size > 0
@@ -821,11 +575,11 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
       note.duration = Math.max(gridValue, Math.round(note.duration / gridValue) * gridValue);
     });
 
-    updateDSLWithNewNotes(notes);
+    updateNotes(notes);
   };
 
   const handleSelectAll = () => {
-    const notes = parseNotesFromDSL(track.id);
+    const notes = parseNotes();
     const allIndices = new Set<number>();
     notes.forEach((_, idx) => allIndices.add(idx));
     setSelectedNotes(allIndices);
@@ -834,7 +588,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
   const handleDuplicate = () => {
     if (selectedNotes.size === 0) return;
 
-    const notes = parseNotesFromDSL(track.id);
+    const notes = parseNotes();
     const selectedNotesList = Array.from(selectedNotes).map(idx => notes[idx]);
 
     // Find the rightmost (latest) note
@@ -842,7 +596,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
 
     // Offset for duplicates: place them right after the selection
     // Use snap value for clean offset
-    const offset = snapToGrid(latestEnd) - Math.min(...selectedNotesList.map(n => n.start));
+    const offset = snapTo(latestEnd) - Math.min(...selectedNotesList.map(n => n.start));
 
     // Create duplicates with offset
     const duplicates = selectedNotesList.map(note => ({
@@ -852,7 +606,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
 
     // Add to existing notes
     notes.push(...duplicates);
-    updateDSLWithNewNotes(notes);
+    updateNotes(notes);
 
     // Select the newly duplicated notes
     const startIndex = notes.length - duplicates.length;
@@ -864,7 +618,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
   };
 
   const handleInvertSelection = () => {
-    const notes = parseNotesFromDSL(track.id);
+    const notes = parseNotes();
     const newSelection = new Set<number>();
 
     notes.forEach((_, idx) => {
@@ -950,18 +704,16 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedNotes, clipboard, clipboardOriginTime, isPlaying, currentTime]);
 
-  // Velocity editor state
-  const [editingVelocity, setEditingVelocity] = useState<{
-    noteIndex: number;
-    startY: number;
-    initialVelocity: number;
-  } | null>(null);
-  const [hoveredVelocityNote, setHoveredVelocityNote] = useState<number | null>(null);
-  const velocityCanvasRef = useRef<HTMLDivElement>(null);
-
   const handleVelocityMouseDown = (e: React.MouseEvent, noteIndex: number) => {
     e.stopPropagation();
-    const notes = parseNotesFromDSL(track.id);
+    const notes = parseNotes();
+    const note = notes[noteIndex];
+
+    // Prevent editing velocity of loop-generated notes
+    if (note.isFromLoop) {
+      return;
+    }
+
     setEditingVelocity({
       noteIndex,
       startY: e.clientY,
@@ -980,11 +732,11 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
     const deltaY = editingVelocity.startY - e.clientY; // Inverted: up = increase
     const velocityChange = deltaY / 100; // 100px = 1.0 velocity change
 
-    const notes = parseNotesFromDSL(track.id);
+    const notes = parseNotes();
     const newVelocity = Math.max(0.1, Math.min(1.0, editingVelocity.initialVelocity + velocityChange));
 
     notes[editingVelocity.noteIndex].velocity = newVelocity;
-    updateDSLWithNewNotes(notes);
+    updateNotes(notes);
   };
 
   const handleVelocityMouseUp = () => {
@@ -1002,7 +754,28 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
     }
   }, [editingVelocity]);
 
-  const notes = parseNotesFromDSL(track.id);
+  // Auto-scroll to keep playhead visible (like DAWs)
+  useEffect(() => {
+    if (!canvasRef.current || !isPlaying) return;
+
+    const container = canvasRef.current;
+    const playheadPosition = secondsToBeats(currentTime, tempo) * zoom + PIANO_WIDTH;
+    const viewportLeft = container.scrollLeft;
+    const viewportRight = viewportLeft + container.clientWidth;
+    const scrollMargin = 100; // Keep playhead this many pixels from edge
+
+    // Check if playhead is going off the right edge
+    if (playheadPosition > viewportRight - scrollMargin) {
+      // Scroll to keep playhead at first 1/4 of viewport (more content ahead visible)
+      container.scrollLeft = playheadPosition - container.clientWidth / 4 - PIANO_WIDTH;
+    }
+    // Check if playhead is going off the left edge (when looping back)
+    else if (playheadPosition < viewportLeft + scrollMargin + PIANO_WIDTH) {
+      container.scrollLeft = Math.max(0, playheadPosition - container.clientWidth / 4 - PIANO_WIDTH);
+    }
+  }, [currentTime, isPlaying, zoom, tempo]);
+
+  const notes = parseNotes();
   const maxDuration = Math.max(10, ...notes.map(n => n.start + n.duration));
 
   return (
@@ -1025,12 +798,51 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
             <span className="text-xs text-yellow-400">Loading samples...</span>
           )}
 
+          {/* Playback controls */}
+          <div className="flex items-center gap-2">
+            {onCompile && (
+              <button
+                onClick={onCompile}
+                className="px-3 py-1 text-xs font-semibold rounded-lg transition-colors bg-green-600 hover:bg-green-500 text-white"
+                title="Compile & Play Track"
+              >
+                COMPILE
+              </button>
+            )}
+            {(onPlay || onStop) && (
+              <button
+                onClick={isPlaying ? onStop : onPlay}
+                className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                  isPlaying
+                    ? 'bg-red-600 hover:bg-red-500'
+                    : 'bg-blue-600 hover:bg-blue-500'
+                } text-white`}
+                title={isPlaying ? "Stop Playback" : "Play Track"}
+              >
+                {isPlaying ? 'STOP' : 'PLAY'}
+              </button>
+            )}
+            {onSolo && (
+              <button
+                onClick={onSolo}
+                className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                  isSoloed
+                    ? 'bg-yellow-600 text-white'
+                    : 'bg-white/10 text-gray-400 hover:bg-white/20'
+                }`}
+                title={isSoloed ? "Unsolo Track" : "Solo Track"}
+              >
+                {isSoloed ? 'SOLOED' : 'SOLO'}
+              </button>
+            )}
+          </div>
+
           {/* Snap controls */}
           <div className="flex items-center gap-2">
             <button
               onClick={() => setSnapEnabled(!snapEnabled)}
               className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors ${snapEnabled
-                  ? 'bg-purple-600 text-white'
+                  ? 'bg-blue-600 text-white'
                   : 'bg-white/10 text-gray-400'
                 }`}
             >
@@ -1075,10 +887,48 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
         </div>
       </div>
 
+      {/* Playhead Scrubber Header */}
+      {onSeek && (
+        <div className="bg-gray-900 border-b border-white/10 px-4 py-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-400 min-w-[60px]">
+              {Math.floor(currentTime / 60)}:{String(Math.floor(currentTime % 60)).padStart(2, '0')}.
+              {String(Math.floor((currentTime % 1) * 10)).padStart(1, '0')}
+            </span>
+            <input
+              type="range"
+              min="0"
+              max={beatsToSeconds(maxDuration, tempo)}
+              step="0.01"
+              value={currentTime}
+              onChange={(e) => onSeek(parseFloat(e.target.value))}
+              className="flex-1 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              style={{
+                background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${(currentTime / beatsToSeconds(maxDuration, tempo)) * 100}%, #374151 ${(currentTime / beatsToSeconds(maxDuration, tempo)) * 100}%, #374151 100%)`
+              }}
+            />
+            <span className="text-xs text-gray-400 min-w-[60px] text-right">
+              {Math.floor(beatsToSeconds(maxDuration, tempo) / 60)}:{String(Math.floor(beatsToSeconds(maxDuration, tempo) % 60)).padStart(2, '0')}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Loading Modal */}
+      {isLoading && (
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 rounded-xl">
+          <div className="bg-gray-800 rounded-lg p-6 text-center shadow-2xl border border-gray-700">
+            <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+            <div className="text-white font-semibold">Loading Audio...</div>
+            <div className="text-gray-400 text-sm mt-1">Please wait</div>
+          </div>
+        </div>
+      )}
+
       <div
         ref={canvasRef}
         className="relative overflow-auto"
-        style={{ height: '400px' }}
+        style={{ height: '650px' }}
         onMouseDown={handleCanvasClick}
         onMouseMove={handleCanvasMouseMove}
         onMouseUp={handleCanvasMouseUp}
@@ -1129,7 +979,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
               return (
                 <div
                   key={pitch}
-                  className={`absolute w-full border-b ${!hasSample
+                  className={`absolute border-b ${!hasSample
                       ? 'bg-gray-950/50 border-gray-800/30'
                       : isBlack
                         ? 'bg-gray-900 border-gray-800'
@@ -1138,6 +988,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
                   style={{
                     top: `${i * NOTE_HEIGHT}px`,
                     height: `${NOTE_HEIGHT}px`,
+                    width: `${maxDuration * zoom}px`,
                   }}
                 />
               );
@@ -1207,30 +1058,37 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
             {notes.map((note, idx) => {
               const hasSample = availableNotes.has(note.pitch);
               const isSelected = selectedNotes.has(idx);
+              const isFromLoop = note.isFromLoop;
 
               return (
                 <div
                   key={idx}
-                  className={`absolute rounded cursor-move ${!hasSample
+                  className={`absolute rounded ${isFromLoop ? 'cursor-not-allowed' : 'cursor-move'} ${
+                    !hasSample
                       ? 'bg-red-500/50 border-2 border-red-600'
-                      : note.isChord
-                        ? 'bg-blue-500'
-                        : 'bg-purple-500'
-                    } ${isSelected ? 'ring-2 ring-white' : ''} hover:brightness-110`}
+                      : isFromLoop
+                        ? 'bg-gray-600 border border-gray-500'
+                        : note.isChord
+                          ? 'bg-blue-500'
+                          : 'bg-blue-600'
+                  } ${isSelected ? 'ring-2 ring-white' : ''} ${!isFromLoop && 'hover:brightness-110'}`}
                   style={{
-                    left: `${timeToX(note.start)}px`,
+                    left: `${beatToX(note.start)}px`,
                     top: `${pitchToY(note.pitch) + 1}px`,
-                    width: `${timeToX(note.duration)}px`,
+                    width: `${beatToX(note.duration)}px`,
                     height: `${NOTE_HEIGHT - 2}px`,
-                    opacity: hasSample ? note.velocity : 0.5,
+                    opacity: hasSample ? (isFromLoop ? 0.6 : note.velocity) : 0.5,
                   }}
-                  onMouseDown={(e) => hasSample && handleNoteMouseDown(e, idx, false)}
+                  onMouseDown={(e) => hasSample && !isFromLoop && handleNoteMouseDown(e, idx, false)}
+                  title={isFromLoop ? 'Loop-generated note (read-only)' : undefined}
                 >
-                  <div className="text-xs text-white px-1 truncate pointer-events-none">
-                    {pitchToNote(note.pitch)} {!hasSample && '⚠'}
+                  <div className="text-xs text-white px-1 truncate pointer-events-none flex items-center gap-1">
+                    <span>{pitchToNote(note.pitch)}</span>
+                    {!hasSample && <span>⚠</span>}
+                    {isFromLoop && <span className="text-[10px]">🔒</span>}
                   </div>
 
-                  {hasSample && (
+                  {hasSample && !isFromLoop && (
                     <div
                       className="absolute right-0 top-0 bottom-0 w-1 bg-white/50 hover:bg-white cursor-ew-resize"
                       onMouseDown={(e) => handleNoteMouseDown(e, idx, true)}
@@ -1258,7 +1116,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
               <div
                 className="absolute border-2 border-green-400 bg-green-400/30 pointer-events-none animate-pulse rounded"
                 style={{
-                  left: `${timeToX(snapToGrid(xToTime(mousePosition.x)))}px`,
+                  left: `${beatToX(snapTo(xToBeat(mousePosition.x)))}px`,
                   top: `${mousePosition.y - 20}px`,
                   width: '60px',
                   height: '40px',
@@ -1274,7 +1132,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
             {isPlaying && (
               <div
                 className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-20 pointer-events-none"
-                style={{ left: `${timeToX(secondsToBeats(currentTime))}px` }}
+                style={{ left: `${beatToX(secondsToBeats(currentTime, tempo))}px` }}
               />
             )}
           </div>
@@ -1290,7 +1148,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
         <div
           ref={velocityCanvasRef}
           className="relative overflow-auto bg-gray-950"
-          style={{ height: '120px' }}
+          style={{ height: '100px' }}
         >
           <div className="flex">
             {/* Spacer for piano keys alignment */}
@@ -1301,7 +1159,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
             </div>
 
             {/* Velocity bars */}
-            <div className="relative flex-1" style={{ width: `${maxDuration * zoom}px`, height: '100px' }}>
+            <div className="relative flex-1" style={{ width: `${maxDuration * zoom}px`, height: '80px' }}>
               {/* Background grid lines (same as piano roll time markers) */}
               {Array.from({ length: Math.ceil(maxDuration / 4) + 1 }).map((_, i) => (
                 <div
@@ -1315,31 +1173,40 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
               {notes.map((note, idx) => {
                 const isSelected = selectedNotes.has(idx);
                 const isHovered = hoveredVelocityNote === idx;
+                const isFromLoop = note.isFromLoop;
                 const barHeight = note.velocity * 100; // 0-1 → 0-100px
                 const percentage = Math.round(note.velocity * 100);
 
                 return (
                   <div
                     key={idx}
-                    className={`absolute cursor-ns-resize ${
-                      isSelected
-                        ? 'bg-gradient-to-t from-purple-500 via-purple-400 to-purple-300'
-                        : 'bg-gradient-to-t from-purple-700 via-purple-600 to-purple-500'
-                      } hover:brightness-110 transition-all shadow-lg`}
+                    className={`absolute ${isFromLoop ? 'cursor-not-allowed' : 'cursor-ns-resize'} ${
+                      isFromLoop
+                        ? 'bg-gradient-to-t from-gray-600 via-gray-500 to-gray-400'
+                        : isSelected
+                          ? 'bg-gradient-to-t from-blue-500 via-blue-400 to-blue-300'
+                          : 'bg-gradient-to-t from-blue-700 via-blue-600 to-blue-500'
+                      } ${!isFromLoop && 'hover:brightness-110'} transition-all shadow-lg`}
                     style={{
-                      left: `${timeToX(note.start)}px`,
+                      left: `${beatToX(note.start)}px`,
                       bottom: '0px',
-                      width: `${timeToX(note.duration)}px`,
+                      width: `${beatToX(note.duration)}px`,
                       height: `${barHeight}px`,
+                      opacity: isFromLoop ? 0.6 : 1,
                     }}
-                    onMouseDown={(e) => handleVelocityMouseDown(e, idx)}
-                    onMouseEnter={() => setHoveredVelocityNote(idx)}
+                    onMouseDown={(e) => !isFromLoop && handleVelocityMouseDown(e, idx)}
+                    onMouseEnter={() => !isFromLoop && setHoveredVelocityNote(idx)}
                     onMouseLeave={() => setHoveredVelocityNote(null)}
-                    title={`Velocity: ${percentage}%`}
+                    title={isFromLoop ? `Loop note - Velocity: ${percentage}% (read-only)` : `Velocity: ${percentage}%`}
                   >
-                    {(isSelected || isHovered) && (
-                      <div className="absolute -top-5 left-0 right-0 text-center text-xs text-white font-bold bg-purple-900/80 rounded px-1">
+                    {(isSelected || isHovered) && !isFromLoop && (
+                      <div className="absolute -top-5 left-0 right-0 text-center text-xs text-white font-bold bg-blue-900/80 rounded px-1">
                         {percentage}%
+                      </div>
+                    )}
+                    {isFromLoop && (isHovered || isSelected) && (
+                      <div className="absolute -top-5 left-0 right-0 text-center text-xs text-white font-bold bg-gray-700/80 rounded px-1">
+                        🔒 {percentage}%
                       </div>
                     )}
                   </div>

@@ -42,6 +42,8 @@ export default function Home() {
   const [currentTime, setCurrentTime] = useState(0);
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
   const [selectedTrackForPianoRoll, setSelectedTrackForPianoRoll] = useState<string | null>(null);
+  const [soloedTrack, setSoloedTrack] = useState<string | null>(null);
+  const [presoloVolumes, setPresoloVolumes] = useState<Record<string, number>>({});
   const [metronomeEnabled, setMetronomeEnabled] = useState(false);
 
   // Loop region state
@@ -137,7 +139,9 @@ export default function Home() {
       if (pool?.voices) {
         pool.voices.forEach((voice: any) => {
           if (voice.volume) {
-            voice.volume.value = volume;
+            // Respect the preGain that was calculated during instrument loading
+            const preGain = voice.__preGain || 0;
+            voice.volume.value = volume === -Infinity ? -Infinity : (preGain + volume);
           }
         });
       }
@@ -241,6 +245,85 @@ export default function Home() {
       const maxDuration = calculateMaxDuration();
       const remainingTime = Math.max(0, maxDuration - time) + 1.5;
       AudioService.setAutoStop(remainingTime, stopAudio);
+    }
+  };
+
+  // Piano Roll handlers
+  const handlePianoRollCompile = async () => {
+    await sendToRunner();
+    if (!isPlaying) {
+      await playAudio();
+    }
+  };
+
+  const handlePianoRollPlay = async () => {
+    if (!executableCode) {
+      showToast("Please compile first");
+      return;
+    }
+    await playAudio();
+  };
+
+  const handlePianoRollSolo = (trackId: string) => {
+    if (soloedTrack === trackId) {
+      // Unsolo - restore all volumes from saved state
+      setSoloedTrack(null);
+
+      // Apply all volume changes atomically
+      const pools = (window as any).__musicControls?.pools;
+      if (pools) {
+        tracks.forEach(track => {
+          if (presoloVolumes.hasOwnProperty(track.id)) {
+            const volume = presoloVolumes[track.id];
+            const pool = pools.get(track.id);
+
+            // Update state
+            setTrackVolumes(prev => ({ ...prev, [track.id]: volume }));
+
+            // Apply immediately to all voices
+            if (pool?.voices) {
+              pool.voices.forEach((voice: any) => {
+                if (voice.volume) {
+                  const preGain = voice.__preGain || 0;
+                  voice.volume.value = volume === -Infinity ? -Infinity : (preGain + volume);
+                }
+              });
+            }
+          }
+        });
+      }
+
+      setPresoloVolumes({});
+    } else {
+      // Save current volumes BEFORE making any changes
+      const currentVolumes: Record<string, number> = {};
+      tracks.forEach(track => {
+        currentVolumes[track.id] = trackVolumes.hasOwnProperty(track.id) ? trackVolumes[track.id] : 0;
+      });
+      setPresoloVolumes(currentVolumes);
+      setSoloedTrack(trackId);
+
+      // Apply all volume changes atomically
+      const pools = (window as any).__musicControls?.pools;
+      if (pools) {
+        tracks.forEach(track => {
+          const volume = track.id === trackId ? (trackVolumes[track.id] || 0) : -Infinity;
+          const pool = pools.get(track.id);
+
+          // Update state
+          setTrackVolumes(prev => ({ ...prev, [track.id]: volume }));
+
+          // Apply immediately to all voices
+          if (pool?.voices) {
+            pool.voices.forEach((voice: any) => {
+              if (voice.volume) {
+                const preGain = voice.__preGain || 0;
+                voice.volume.value = volume === -Infinity ? -Infinity : (preGain + volume);
+              }
+            });
+          }
+        });
+      }
     }
   };
 
@@ -1114,7 +1197,7 @@ export default function Home() {
                 isPlaying={isPlaying}
                 currentTime={currentTime}
                 onSeek={handleSeek}
-                isLoading={isLoadingAudio}
+                isLoading={isLoadingAudio && !selectedTrackForPianoRoll}
                 loopEnabled={loopEnabled}
                 loopStart={loopStart}
                 loopEnd={loopEnd}
@@ -1197,6 +1280,13 @@ export default function Home() {
                 onCodeChange={setCode}
                 isPlaying={isPlaying}
                 currentTime={currentTime}
+                onCompile={handlePianoRollCompile}
+                onPlay={handlePianoRollPlay}
+                onStop={stopAudio}
+                onSolo={() => handlePianoRollSolo(selectedTrackForPianoRoll)}
+                isSoloed={soloedTrack === selectedTrackForPianoRoll}
+                isLoading={isLoadingAudio}
+                onSeek={handleSeek}
               />
             </div>
           </div>

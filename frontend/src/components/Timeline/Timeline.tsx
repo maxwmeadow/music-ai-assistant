@@ -129,7 +129,6 @@ export function Timeline({
 
     // Check if this is a loop-generated note (read-only)
     if (note?.isFromLoop) {
-      alert('This note is from a loop block and cannot be edited in the timeline.\n\nTo edit it, modify the loop in the code editor.');
       return;
     }
 
@@ -673,7 +672,7 @@ export function Timeline({
                         {isDrumTrack(track.id, track.instrument || undefined)
                           ? pitchToDrumName(note.pitch)
                           : pitchToNote(note.pitch)
-                        }{note.isChord ? ' ♫' : ''}
+                        }{note.isChord ? ' ♫' : ''}{note.isFromLoop ? ' 🔒' : ''}
                       </div>
 
                       {/* Resize handle - hidden for loop notes */}
