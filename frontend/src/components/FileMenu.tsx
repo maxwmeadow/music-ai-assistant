@@ -26,6 +26,11 @@ interface FileMenuProps {
     loopStart?: number;
     loopEnd?: number;
     trackVolumes?: Record<string, number>;
+    trackPans?: Record<string, number>;
+    trackMutes?: Record<string, boolean>;
+    trackSolos?: Record<string, boolean>;
+    masterVolume?: number;
+    masterPan?: number;
   };
 
   // State setters

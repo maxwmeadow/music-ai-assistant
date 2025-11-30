@@ -13,8 +13,16 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Music Assistant",
-  description: "Your persoanl AI assisted DAW",
+  title: "Phonauto",
+  description: "Your personal AI assisted DAW",
+  icons: {
+    icon: [
+      { url: "/phonautoicon.png" },
+      { url: "/phonautoicon.png", sizes: "32x32", type: "image/png" },
+    ],
+    shortcut: "/phonautoicon.png",
+    apple: "/phonautoicon.png",
+  },
 };
 
 export default function RootLayout({

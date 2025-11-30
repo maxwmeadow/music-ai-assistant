@@ -295,21 +295,11 @@ export function updateDSLWithNewNotes(
   if (!trackMatch) return;
 
   const [fullMatch, opening, trackContent, closing] = trackMatch;
-  const instrumentMatch = trackContent.match(/instrument\("([^"]+)"\)/);
-  const instrumentLine = instrumentMatch ? `  instrument("${instrumentMatch[1]}")\n` : '';
-
-  // Extract all loop blocks to preserve them
-  const loopBlocks: string[] = [];
-  const loopPattern = /loop\s*\([^)]+\)\s*\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g;
-  let loopMatch;
-
-  while ((loopMatch = loopPattern.exec(trackContent)) !== null) {
-    loopBlocks.push(loopMatch[0]);
-  }
 
   // Filter out loop-generated notes - only update directly-written notes
   const directNotes = updatedNotes.filter(note => !note.isFromLoop);
 
+  // Group updated notes by time for chord detection
   const notesByTime = new Map<string, PianoRollNote[]>();
   directNotes.forEach(note => {
     const timeKey = note.start.toFixed(3);
@@ -319,39 +309,93 @@ export function updateDSLWithNewNotes(
     notesByTime.get(timeKey)!.push(note);
   });
 
-  const noteLines: string[] = [];
-  Array.from(notesByTime.entries())
-    .sort(([a], [b]) => parseFloat(a) - parseFloat(b))
-    .forEach(([timeStr, notes]) => {
-      if (notes.length === 1) {
-        const note = notes[0];
-        const noteName = pitchToNote(note.pitch);
-        const startSeconds = beatsToSeconds(note.start, tempo);
-        const durationSeconds = beatsToSeconds(note.duration, tempo);
-        noteLines.push(
-          `  note("${noteName}", ${startSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${note.velocity.toFixed(1)})`
-        );
-      } else {
-        const noteNames = notes.map(n => `"${pitchToNote(n.pitch)}"`).join(', ');
-        const avgDuration = notes.reduce((sum, n) => sum + n.duration, 0) / notes.length;
-        const avgVelocity = notes.reduce((sum, n) => sum + n.velocity, 0) / notes.length;
-        const startSeconds = beatsToSeconds(notes[0].start, tempo);
-        const durationSeconds = beatsToSeconds(avgDuration, tempo);
-        noteLines.push(
-          `  chord([${noteNames}], ${startSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${avgVelocity.toFixed(1)})`
-        );
-      }
-    });
+  // Build a map of what each note/chord should look like
+  const updatedNoteLines = new Map<string, string>();
+  Array.from(notesByTime.entries()).forEach(([timeStr, notes]) => {
+    const timeSeconds = beatsToSeconds(parseFloat(timeStr), tempo);
+    const timeKey = timeSeconds.toFixed(3);
 
-  // Rebuild track content with instrument, direct notes, and loop blocks
-  let newTrackContent = `${opening}\n`;
-  if (instrumentLine) newTrackContent += instrumentLine;
-  if (noteLines.length > 0) newTrackContent += noteLines.join('\n') + '\n';
-  loopBlocks.forEach(loopBlock => {
-    newTrackContent += `  ${loopBlock}\n`;
+    if (notes.length === 1) {
+      const note = notes[0];
+      const noteName = pitchToNote(note.pitch);
+      const durationSeconds = beatsToSeconds(note.duration, tempo);
+      updatedNoteLines.set(timeKey,
+        `note("${noteName}", ${timeSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${note.velocity.toFixed(2)})`
+      );
+    } else {
+      const noteNames = notes.map(n => `"${pitchToNote(n.pitch)}"`).join(', ');
+      const avgDuration = notes.reduce((sum, n) => sum + n.duration, 0) / notes.length;
+      const avgVelocity = notes.reduce((sum, n) => sum + n.velocity, 0) / notes.length;
+      const durationSeconds = beatsToSeconds(avgDuration, tempo);
+      updatedNoteLines.set(timeKey,
+        `chord([${noteNames}], ${timeSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${avgVelocity.toFixed(2)})`
+      );
+    }
   });
-  newTrackContent += closing;
 
+  // Process track content line by line, preserving structure
+  const lines = trackContent.split('\n');
+  const newLines: string[] = [];
+  const processedTimes = new Set<string>();
+
+  // Helper to find matching time with tolerance
+  const findMatchingTime = (targetTime: number): string | null => {
+    const tolerance = 0.001; // 1ms tolerance
+    for (const [key, _] of updatedNoteLines.entries()) {
+      const keyTime = parseFloat(key);
+      if (Math.abs(keyTime - targetTime) < tolerance) {
+        return key;
+      }
+    }
+    return null;
+  };
+
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+
+    // Check if this is a note or chord line
+    // Match either: note("C4", 0.0, ...) or chord(["C4", "E4"], 0.0, ...)
+    const noteMatch = trimmedLine.match(/^(note|chord)\((?:"[^"]+"|(?:\[[^\]]+\])),\s*([0-9.]+)/);
+    if (noteMatch) {
+      const timeSeconds = parseFloat(noteMatch[2]);
+
+      // Find matching time key with tolerance
+      const matchingKey = findMatchingTime(timeSeconds);
+
+      // Check if we have an updated version of this note/chord
+      if (matchingKey && !processedTimes.has(matchingKey)) {
+        newLines.push(`  ${updatedNoteLines.get(matchingKey)}`);
+        processedTimes.add(matchingKey);
+      } else if (!matchingKey) {
+        // Keep original line if no update found
+        newLines.push(line);
+      }
+      // Skip if already processed (duplicate at same time)
+    } else {
+      // Keep all non-note lines (comments, blank lines, loops, instrument)
+      newLines.push(line);
+    }
+  }
+
+  // Add any new notes that weren't in the original
+  const newNotes: string[] = [];
+  for (const [timeKey, noteLine] of updatedNoteLines.entries()) {
+    if (!processedTimes.has(timeKey)) {
+      newNotes.push(`  ${noteLine}`);
+    }
+  }
+
+  // Insert new notes at the end before closing brace, maintaining structure
+  if (newNotes.length > 0) {
+    // Find the last non-empty line before the end
+    let insertIndex = newLines.length - 1;
+    while (insertIndex >= 0 && newLines[insertIndex].trim() === '') {
+      insertIndex--;
+    }
+    newLines.splice(insertIndex + 1, 0, ...newNotes);
+  }
+
+  const newTrackContent = `${opening}\n${newLines.join('\n')}\n${closing}`;
   const newDSL = dslCode.replace(fullMatch, newTrackContent);
   onCodeChange(newDSL);
 }

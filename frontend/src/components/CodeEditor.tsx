@@ -130,13 +130,19 @@ export const CodeEditor = memo(function CodeEditor({
     useEffect(() => {
         if (!editorRef.current) return;
 
-        const commandId = editorRef.current.addCommand(
-            2087, // Monaco.KeyMod.CtrlCmd | Monaco.KeyCode.KeyI
-            () => {
-                const position = editorRef.current?.getPosition();
-                if (!position || !editorRef.current) return;
+        const action = editorRef.current.addAction({
+            id: 'open-instrument-picker',
+            label: 'Open Instrument Picker',
+            keybindings: [2087], // Monaco.KeyMod.CtrlCmd | Monaco.KeyCode.KeyI
+            precondition: undefined,
+            keybindingContext: undefined,
+            contextMenuGroupId: 'navigation',
+            contextMenuOrder: 1.5,
+            run: (editor) => {
+                const position = editor.getPosition();
+                if (!position) return;
 
-                const model = editorRef.current.getModel();
+                const model = editor.getModel();
                 if (!model) return;
 
                 const lineContent = model.getLineContent(position.lineNumber);
@@ -148,11 +154,10 @@ export const CodeEditor = memo(function CodeEditor({
                     setShowInstrumentPicker(true);
                 }
             }
-        );
+        });
 
         return () => {
-            // Cleanup: Monaco editor doesn't have removeCommand API
-            // Command will be cleaned up when editor is disposed
+            action.dispose();
         };
     }, []);
 

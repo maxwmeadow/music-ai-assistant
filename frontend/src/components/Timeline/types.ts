@@ -4,6 +4,7 @@ export interface TimelineNote {
   duration: number;
   velocity: number;
   isChord?: boolean;
+  chordPitches?: number[]; // All pitches in the chord (includes root)
   isFromLoop?: boolean; // True if this note was generated from a loop block
 }
 

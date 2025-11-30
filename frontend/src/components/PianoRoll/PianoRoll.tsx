@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, JSX } from "react";
+import { useState, useRef, useEffect, useCallback, JSX } from "react";
 import { ParsedTrack } from "@/lib/dslParser";
 import { SNAP_OPTIONS } from "@/components/Timeline/types";
 import {
@@ -55,11 +55,14 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
     startY: number;
     initialStart: number;
     initialPitch: number;
+    currentStart?: number;
+    currentPitch?: number;
   } | null>(null);
   const [resizingNote, setResizingNote] = useState<{
     noteIndex: number;
     startX: number;
     initialDuration: number;
+    currentDuration?: number;
   } | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawStart, setDrawStart] = useState<{ time: number; pitch: number } | null>(null);
@@ -79,6 +82,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
     noteIndex: number;
     startY: number;
     initialVelocity: number;
+    currentVelocity?: number;
   } | null>(null);
   const [hoveredVelocityNote, setHoveredVelocityNote] = useState<number | null>(null);
 
@@ -217,6 +221,14 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
     const x = e.clientX - rect.left - PIANO_WIDTH + canvasRef.current.scrollLeft;
     const y = e.clientY - rect.top + canvasRef.current.scrollTop;
 
+    // Ignore clicks on scrollbar (typically last 17px of container)
+    const clickYRelativeToContainer = e.clientY - rect.top;
+    const containerHeight = canvasRef.current.clientHeight;
+    const scrollbarHeight = 17; // Typical scrollbar height
+    if (clickYRelativeToContainer > containerHeight - scrollbarHeight && canvasRef.current.scrollWidth > canvasRef.current.clientWidth) {
+      return; // Clicked on horizontal scrollbar
+    }
+
     if (x < 0) return;
 
     // Check if clicking on an existing note
@@ -341,6 +353,16 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
     const x = e.clientX - rect.left - PIANO_WIDTH + canvasRef.current.scrollLeft;
     const y = e.clientY - rect.top + canvasRef.current.scrollTop;
 
+    // Ignore clicks on scrollbar (typically last 17px of container)
+    const clickYRelativeToContainer = e.clientY - rect.top;
+    const containerHeight = canvasRef.current.clientHeight;
+    const scrollbarHeight = 17; // Typical scrollbar height
+    if (clickYRelativeToContainer > containerHeight - scrollbarHeight && canvasRef.current.scrollWidth > canvasRef.current.clientWidth) {
+      // Clicked on horizontal scrollbar - clear any potential selections but don't create notes
+      setPotentialBoxSelect(null);
+      return;
+    }
+
     // End box selection
     if (isBoxSelecting) {
       setIsBoxSelecting(false);
@@ -379,24 +401,15 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
       // Calculate the raw drag distance
       const dragDistance = Math.abs(endBeats - drawStart.time);
 
-      console.log('=== Note Creation Debug ===');
-      console.log('snapValue:', snapValue);
-      console.log('drawStart.time:', drawStart.time);
-      console.log('endBeats:', endBeats);
-      console.log('dragDistance:', dragDistance);
-      console.log('dragDistance < snapValue / 2?', dragDistance < snapValue / 2);
-
       let duration: number;
 
       // If barely dragged (less than half a snap value), create note at snap size
       if (dragDistance < snapValue / 2) {
         duration = snapValue;
-        console.log('Using snap duration:', duration);
       } else {
         // User dragged - snap the end point and calculate duration
         const snappedEndBeats = snapTo(endBeats);
         duration = Math.max(snapValue, Math.abs(snappedEndBeats - drawStart.time));
-        console.log('Using dragged duration:', duration);
       }
 
       const notes = parseNotes();
@@ -415,6 +428,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
 
   const handleNoteMouseDown = (e: React.MouseEvent, noteIndex: number, isResize: boolean) => {
     e.stopPropagation();
+    e.preventDefault(); // Prevent text selection
     const notes = parseNotes();
     const note = notes[noteIndex];
 
@@ -462,37 +476,55 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
 
   const handleMouseMove = (e: MouseEvent) => {
     if (draggingNote) {
+      e.preventDefault(); // Prevent text selection during drag
+
       const deltaX = e.clientX - draggingNote.startX;
       const deltaY = e.clientY - draggingNote.startY;
       const deltaBeats = deltaX / zoom;
       const deltaPitch = Math.round(-deltaY / NOTE_HEIGHT);
 
-      const notes = parseNotes();
       const rawStart = draggingNote.initialStart + deltaBeats;
       const snappedStart = snapTo(Math.max(0, rawStart));
+      const newPitch = Math.max(MIDI_MIN, Math.min(MIDI_MAX, draggingNote.initialPitch + deltaPitch));
 
-      notes[draggingNote.noteIndex].start = snappedStart;
-      notes[draggingNote.noteIndex].pitch = Math.max(
-        MIDI_MIN,
-        Math.min(MIDI_MAX, draggingNote.initialPitch + deltaPitch)
-      );
-
-      updateNotes(notes);
+      // Update visual state only
+      setDraggingNote({
+        ...draggingNote,
+        currentStart: snappedStart,
+        currentPitch: newPitch
+      });
     } else if (resizingNote) {
+      e.preventDefault(); // Prevent text selection during drag
+
       const deltaX = e.clientX - resizingNote.startX;
       const deltaBeats = deltaX / zoom;
 
-      const notes = parseNotes();
       const rawDuration = resizingNote.initialDuration + deltaBeats;
       const snappedDuration = Math.max(snapValue, snapTo(rawDuration));
 
-      notes[resizingNote.noteIndex].duration = snappedDuration;
-
-      updateNotes(notes);
+      // Update visual state only
+      setResizingNote({
+        ...resizingNote,
+        currentDuration: snappedDuration
+      });
     }
   };
 
   const handleMouseUp = () => {
+    // Apply DSL changes if note was actually moved
+    if (draggingNote && draggingNote.currentStart !== undefined && draggingNote.currentPitch !== undefined) {
+      const notes = parseNotes();
+      notes[draggingNote.noteIndex].start = draggingNote.currentStart;
+      notes[draggingNote.noteIndex].pitch = draggingNote.currentPitch;
+      updateNotes(notes);
+    }
+
+    if (resizingNote && resizingNote.currentDuration !== undefined) {
+      const notes = parseNotes();
+      notes[resizingNote.noteIndex].duration = resizingNote.currentDuration;
+      updateNotes(notes);
+    }
+
     setDraggingNote(null);
     setResizingNote(null);
   };
@@ -631,17 +663,6 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
   };
 
   useEffect(() => {
-    if (draggingNote || resizingNote) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-      return () => {
-        window.removeEventListener('mousemove', handleMouseMove);
-        window.removeEventListener('mouseup', handleMouseUp);
-      };
-    }
-  }, [draggingNote, resizingNote]);
-
-  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Check if we're in an input (don't trigger if typing in snap dropdown, etc.)
       const target = e.target as HTMLElement;
@@ -706,6 +727,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
 
   const handleVelocityMouseDown = (e: React.MouseEvent, noteIndex: number) => {
     e.stopPropagation();
+    e.preventDefault(); // Prevent text selection
     const notes = parseNotes();
     const note = notes[noteIndex];
 
@@ -726,22 +748,48 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
     }
   };
 
-  const handleVelocityMouseMove = (e: MouseEvent) => {
-    if (!editingVelocity) return;
+  const handleVelocityMouseMove = useCallback((e: MouseEvent) => {
+    setEditingVelocity(prev => {
+      if (!prev) return null;
 
-    const deltaY = editingVelocity.startY - e.clientY; // Inverted: up = increase
-    const velocityChange = deltaY / 100; // 100px = 1.0 velocity change
+      e.preventDefault(); // Prevent text selection during drag
 
-    const notes = parseNotes();
-    const newVelocity = Math.max(0.1, Math.min(1.0, editingVelocity.initialVelocity + velocityChange));
+      const deltaY = prev.startY - e.clientY; // Inverted: up = increase
+      const velocityChange = deltaY / 120; // 120px = 1.0 velocity change (matches visual bar scale)
 
-    notes[editingVelocity.noteIndex].velocity = newVelocity;
-    updateNotes(notes);
-  };
+      const newVelocity = Math.max(0.1, Math.min(1.0, prev.initialVelocity + velocityChange));
 
-  const handleVelocityMouseUp = () => {
-    setEditingVelocity(null);
-  };
+      // Update visual state only (don't update DSL during drag)
+      return {
+        ...prev,
+        currentVelocity: newVelocity
+      };
+    });
+  }, []);
+
+  const handleVelocityMouseUp = useCallback(() => {
+    setEditingVelocity(prev => {
+      // Apply DSL changes if velocity was actually changed
+      if (prev && prev.currentVelocity !== undefined) {
+        const notes = parseNotesFromDSL(dslCode, track.id, tempo);
+
+        // Find all notes at the same time position (they're part of the same chord)
+        const editedNote = notes[prev.noteIndex];
+        const startTime = editedNote.start;
+
+        // Update velocity for ALL notes at this time position (entire chord)
+        notes.forEach((note, idx) => {
+          if (Math.abs(note.start - startTime) < 0.001) {
+            notes[idx].velocity = prev.currentVelocity;
+          }
+        });
+
+        updateDSLWithNewNotes(dslCode, track.id, notes, tempo, onCodeChange);
+      }
+
+      return null;
+    });
+  }, [dslCode, track.id, tempo, onCodeChange]);
 
   useEffect(() => {
     if (editingVelocity) {
@@ -752,7 +800,46 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
         window.removeEventListener('mouseup', handleVelocityMouseUp);
       };
     }
-  }, [editingVelocity]);
+  }, [editingVelocity, handleVelocityMouseMove, handleVelocityMouseUp]);
+
+  // Add global event listeners for note dragging and resizing
+  useEffect(() => {
+    if (draggingNote || resizingNote) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [draggingNote, resizingNote, handleMouseMove, handleMouseUp]);
+
+  // Sync horizontal scroll between piano roll and velocity editor
+  useEffect(() => {
+    const pianoRoll = canvasRef.current;
+    const velocityEditor = velocityCanvasRef.current;
+    if (!pianoRoll || !velocityEditor) return;
+
+    const handlePianoRollScroll = () => {
+      if (velocityEditor.scrollLeft !== pianoRoll.scrollLeft) {
+        velocityEditor.scrollLeft = pianoRoll.scrollLeft;
+      }
+    };
+
+    const handleVelocityEditorScroll = () => {
+      if (pianoRoll.scrollLeft !== velocityEditor.scrollLeft) {
+        pianoRoll.scrollLeft = velocityEditor.scrollLeft;
+      }
+    };
+
+    pianoRoll.addEventListener('scroll', handlePianoRollScroll);
+    velocityEditor.addEventListener('scroll', handleVelocityEditorScroll);
+
+    return () => {
+      pianoRoll.removeEventListener('scroll', handlePianoRollScroll);
+      velocityEditor.removeEventListener('scroll', handleVelocityEditorScroll);
+    };
+  }, []);
 
   // Auto-scroll to keep playhead visible (like DAWs)
   useEffect(() => {
@@ -779,7 +866,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
   const maxDuration = Math.max(10, ...notes.map(n => n.start + n.duration));
 
   return (
-    <div className="bg-gray-950 border border-white/10 rounded-xl overflow-hidden flex flex-col">
+    <div className="bg-gray-950 border border-white/10 rounded-xl overflow-hidden flex flex-col h-full min-h-0">
       <div className="bg-gray-900 border-b border-white/10 p-4 flex items-center justify-between">
         <div>
           <h3 className="text-white font-semibold">Piano Roll - {track.id}</h3>
@@ -927,8 +1014,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
 
       <div
         ref={canvasRef}
-        className="relative overflow-auto"
-        style={{ height: '650px' }}
+        className="relative overflow-auto flex-1 min-h-0 select-none"
         onMouseDown={handleCanvasClick}
         onMouseMove={handleCanvasMouseMove}
         onMouseUp={handleCanvasMouseUp}
@@ -1060,6 +1146,21 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
               const isSelected = selectedNotes.has(idx);
               const isFromLoop = note.isFromLoop;
 
+              // Check if this note is being dragged or resized
+              const isDragging = draggingNote?.noteIndex === idx;
+              const isResizing = resizingNote?.noteIndex === idx;
+
+              // Use current position if dragging, otherwise use note position
+              const displayStart = (isDragging && draggingNote.currentStart !== undefined)
+                ? draggingNote.currentStart
+                : note.start;
+              const displayPitch = (isDragging && draggingNote.currentPitch !== undefined)
+                ? draggingNote.currentPitch
+                : note.pitch;
+              const displayDuration = (isResizing && resizingNote.currentDuration !== undefined)
+                ? resizingNote.currentDuration
+                : note.duration;
+
               return (
                 <div
                   key={idx}
@@ -1073,9 +1174,9 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
                           : 'bg-blue-600'
                   } ${isSelected ? 'ring-2 ring-white' : ''} ${!isFromLoop && 'hover:brightness-110'}`}
                   style={{
-                    left: `${beatToX(note.start)}px`,
-                    top: `${pitchToY(note.pitch) + 1}px`,
-                    width: `${beatToX(note.duration)}px`,
+                    left: `${beatToX(displayStart)}px`,
+                    top: `${pitchToY(displayPitch) + 1}px`,
+                    width: `${beatToX(displayDuration)}px`,
                     height: `${NOTE_HEIGHT - 2}px`,
                     opacity: hasSample ? (isFromLoop ? 0.6 : note.velocity) : 0.5,
                   }}
@@ -1083,7 +1184,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
                   title={isFromLoop ? 'Loop-generated note (read-only)' : undefined}
                 >
                   <div className="text-xs text-white px-1 truncate pointer-events-none flex items-center gap-1">
-                    <span>{pitchToNote(note.pitch)}</span>
+                    <span>{pitchToNote(displayPitch)}</span>
                     {!hasSample && <span>⚠</span>}
                     {isFromLoop && <span className="text-[10px]">🔒</span>}
                   </div>
@@ -1140,15 +1241,15 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
       </div>
 
       {/* Velocity Editor */}
-      <div className="border-t border-white/10">
+      <div className="flex-none border-t border-white/10">
         <div className="bg-gray-900 px-4 py-2 border-b border-white/10">
           <h4 className="text-sm font-semibold text-white">Velocity Editor</h4>
           <p className="text-xs text-gray-400">Click and drag bars to adjust velocity</p>
         </div>
         <div
           ref={velocityCanvasRef}
-          className="relative overflow-auto bg-gray-950"
-          style={{ height: '100px' }}
+          className="relative overflow-x-auto overflow-y-hidden bg-gray-950 select-none"
+          style={{ height: '140px' }}
         >
           <div className="flex">
             {/* Spacer for piano keys alignment */}
@@ -1159,7 +1260,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
             </div>
 
             {/* Velocity bars */}
-            <div className="relative flex-1" style={{ width: `${maxDuration * zoom}px`, height: '80px' }}>
+            <div className="relative flex-1" style={{ width: `${maxDuration * zoom}px`, height: '140px', paddingTop: '20px' }}>
               {/* Background grid lines (same as piano roll time markers) */}
               {Array.from({ length: Math.ceil(maxDuration / 4) + 1 }).map((_, i) => (
                 <div
@@ -1174,8 +1275,17 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
                 const isSelected = selectedNotes.has(idx);
                 const isHovered = hoveredVelocityNote === idx;
                 const isFromLoop = note.isFromLoop;
-                const barHeight = note.velocity * 100; // 0-1 → 0-100px
-                const percentage = Math.round(note.velocity * 100);
+
+                // Check if this note is being edited
+                const isEditingThis = editingVelocity?.noteIndex === idx;
+
+                // Use current velocity if editing, otherwise use note velocity
+                const displayVelocity = (isEditingThis && editingVelocity.currentVelocity !== undefined)
+                  ? editingVelocity.currentVelocity
+                  : note.velocity;
+
+                const barHeight = displayVelocity * 120; // 0-1 → 0-120px
+                const percentage = Math.round(displayVelocity * 100);
 
                 return (
                   <div

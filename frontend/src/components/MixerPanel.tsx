@@ -6,43 +6,40 @@ import { Music } from "lucide-react";
 
 interface MixerPanelProps {
   tracks: ParsedTrack[];
+  trackVolumes: Record<string, number>;
+  trackPans: Record<string, number>;
+  trackMutes: Record<string, boolean>;
+  trackSolos: Record<string, boolean>;
+  masterVolume: number;
+  masterPan: number;
   onVolumeChange: (trackId: string, volume: number) => void;
+  onPanChange: (trackId: string, pan: number) => void;
+  onMuteChange: (trackId: string, muted: boolean) => void;
+  onSoloChange: (trackId: string, soloed: boolean) => void;
+  onMasterVolumeChange: (volume: number) => void;
+  onMasterPanChange: (pan: number) => void;
 }
 
-export const MixerPanel = memo(function MixerPanel({ tracks, onVolumeChange }: MixerPanelProps) {
-  const [volumes, setVolumes] = useState<Record<string, number>>({});
-  const [pans, setPans] = useState<Record<string, number>>({});
-  const [mutes, setMutes] = useState<Record<string, boolean>>({});
-  const [solos, setSolos] = useState<Record<string, boolean>>({});
+export const MixerPanel = memo(function MixerPanel({
+  tracks,
+  trackVolumes,
+  trackPans,
+  trackMutes,
+  trackSolos,
+  masterVolume,
+  masterPan,
+  onVolumeChange,
+  onPanChange,
+  onMuteChange,
+  onSoloChange,
+  onMasterVolumeChange,
+  onMasterPanChange
+}: MixerPanelProps) {
+  // Only keep state for meters and levels (visualization only)
   const [levels, setLevels] = useState<Record<string, number>>({});
   const [meters, setMeters] = useState<Record<string, any>>({});
-
-  // Master fader state
-  const [masterVolume, setMasterVolume] = useState<number>(0);
-  const [masterPan, setMasterPan] = useState<number>(0);
   const [masterLevel, setMasterLevel] = useState<number>(-60);
   const [masterMeter, setMasterMeter] = useState<any>(null);
-
-  // Initialize volumes and pans (preserve existing values)
-  useEffect(() => {
-    setVolumes(prev => {
-      const newVolumes: Record<string, number> = {};
-      tracks.forEach(track => {
-        // Preserve existing volume or default to 0dB
-        newVolumes[track.id] = prev[track.id] ?? 0;
-      });
-      return newVolumes;
-    });
-
-    setPans(prev => {
-      const newPans: Record<string, number> = {};
-      tracks.forEach(track => {
-        // Preserve existing pan or default to 0 (center)
-        newPans[track.id] = prev[track.id] ?? 0;
-      });
-      return newPans;
-    });
-  }, [tracks]);
 
   // Create meters and apply panning to all voices when pools are ready
   useEffect(() => {
@@ -63,7 +60,7 @@ export const MixerPanel = memo(function MixerPanel({ tracks, onVolumeChange }: M
           }
 
           // Apply panning to all voices for this track
-          const panValue = pans[trackId] ?? 0;
+          const panValue = trackPans[trackId] ?? 0;
           if (pool?.voices) {
             pool.voices.forEach((voice: any) => {
               if (!voice.__panner && voice.disconnect) {
@@ -93,7 +90,7 @@ export const MixerPanel = memo(function MixerPanel({ tracks, onVolumeChange }: M
     }, 100);
 
     return () => clearInterval(checkInterval);
-  }, [meters, pans]);
+  }, [meters, trackPans]);
 
   // Create master meter on Tone.Destination
   useEffect(() => {
@@ -108,6 +105,31 @@ export const MixerPanel = memo(function MixerPanel({ tracks, onVolumeChange }: M
 
     return () => clearInterval(checkInterval);
   }, [masterMeter]);
+
+  // Apply mute/solo state to audio engine whenever state changes (important for loading saved projects)
+  useEffect(() => {
+    if ((window as any).__musicControls?.pools) {
+      const hasSolo = Object.values(trackSolos).some(s => s);
+
+      tracks.forEach(track => {
+        const isMuted = trackMutes[track.id];
+        const isSoloed = trackSolos[track.id];
+        const actualVolume = isMuted || (hasSolo && !isSoloed)
+          ? -Infinity
+          : trackVolumes[track.id] ?? 0;
+
+        const pool = (window as any).__musicControls.pools.get(track.id);
+        if (pool?.voices) {
+          pool.voices.forEach((voice: any) => {
+            if (voice.volume) {
+              const preGain = voice.__preGain ?? 0;
+              voice.volume.value = actualVolume === -Infinity ? -Infinity : (preGain + actualVolume);
+            }
+          });
+        }
+      });
+    }
+  }, [trackMutes, trackSolos, trackVolumes, tracks]);
 
   // Monitor actual audio levels from meters (tracks + master)
   useEffect(() => {
@@ -174,13 +196,13 @@ export const MixerPanel = memo(function MixerPanel({ tracks, onVolumeChange }: M
   }, [meters, masterMeter]);
 
   const handleVolumeChange = (trackId: string, value: number) => {
-    const newVolumes = { ...volumes, [trackId]: value };
-    setVolumes(newVolumes);
+    // Call the callback to update parent state
+    onVolumeChange(trackId, value);
 
     // Calculate actual volume considering mute/solo
-    const hasSolo = Object.values(solos).some(s => s);
-    const isMuted = mutes[trackId];
-    const isSoloed = solos[trackId];
+    const hasSolo = Object.values(trackSolos).some(s => s);
+    const isMuted = trackMutes[trackId];
+    const isSoloed = trackSolos[trackId];
 
     let actualVolume = value;
     if (isMuted || (hasSolo && !isSoloed)) {
@@ -204,37 +226,62 @@ export const MixerPanel = memo(function MixerPanel({ tracks, onVolumeChange }: M
   };
 
   const toggleMute = (trackId: string) => {
-    const newMutes = { ...mutes, [trackId]: !mutes[trackId] };
-    setMutes(newMutes);
+    const newMuted = !trackMutes[trackId];
+    onMuteChange(trackId, newMuted);
 
-    const hasSolo = Object.values(solos).some(s => s);
-    const actualVolume = newMutes[trackId] || (hasSolo && !solos[trackId])
+    const hasSolo = Object.values(trackSolos).some(s => s);
+    const actualVolume = newMuted || (hasSolo && !trackSolos[trackId])
       ? -Infinity
-      : volumes[trackId];
+      : trackVolumes[trackId] ?? 0;
 
-    onVolumeChange(trackId, actualVolume);
+    // Apply directly to audio engine without calling onVolumeChange
+    if ((window as any).__musicControls?.pools) {
+      const pool = (window as any).__musicControls.pools.get(trackId);
+      if (pool?.voices) {
+        pool.voices.forEach((voice: any) => {
+          if (voice.volume) {
+            const preGain = voice.__preGain ?? 0;
+            voice.volume.value = actualVolume === -Infinity ? -Infinity : (preGain + actualVolume);
+          }
+        });
+      }
+    }
   };
 
   const toggleSolo = (trackId: string) => {
-    const newSolos = { ...solos, [trackId]: !solos[trackId] };
-    setSolos(newSolos);
+    const newSoloed = !trackSolos[trackId];
+    onSoloChange(trackId, newSoloed);
 
+    // Build new solos object with this change
+    const newSolos = { ...trackSolos, [trackId]: newSoloed };
     const hasSolo = Object.values(newSolos).some(s => s);
 
+    // Apply volume changes directly to Tone.js without updating parent state
     tracks.forEach(track => {
-      const isMuted = mutes[track.id];
+      const isMuted = trackMutes[track.id];
       const isSoloed = newSolos[track.id];
       const actualVolume = isMuted || (hasSolo && !isSoloed)
         ? -Infinity
-        : volumes[track.id];
+        : trackVolumes[track.id] ?? 0;
 
-      onVolumeChange(track.id, actualVolume);
+      // Apply directly to audio engine without calling onVolumeChange
+      if ((window as any).__musicControls?.pools) {
+        const pool = (window as any).__musicControls.pools.get(track.id);
+        if (pool?.voices) {
+          pool.voices.forEach((voice: any) => {
+            if (voice.volume) {
+              const preGain = voice.__preGain ?? 0;
+              voice.volume.value = actualVolume === -Infinity ? -Infinity : (preGain + actualVolume);
+            }
+          });
+        }
+      }
     });
   };
 
-  const handlePanChange = (trackId: string, value: number) => {
-    const newPans = { ...pans, [trackId]: value };
-    setPans(newPans);
+  const handleLocalPanChange = (trackId: string, value: number) => {
+    // Call the callback to update parent state
+    onPanChange(trackId, value);
 
     // Apply pan to each voice in the track
     if ((window as any).__musicControls?.pools) {
@@ -258,8 +305,9 @@ export const MixerPanel = memo(function MixerPanel({ tracks, onVolumeChange }: M
     }
   };
 
-  const handleMasterVolumeChange = (value: number) => {
-    setMasterVolume(value);
+  const handleLocalMasterVolumeChange = (value: number) => {
+    // Call the callback to update parent state
+    onMasterVolumeChange(value);
 
     // Apply master volume to Tone.Destination
     if ((window as any).Tone) {
@@ -268,8 +316,9 @@ export const MixerPanel = memo(function MixerPanel({ tracks, onVolumeChange }: M
     }
   };
 
-  const handleMasterPanChange = (value: number) => {
-    setMasterPan(value);
+  const handleLocalMasterPanChange = (value: number) => {
+    // Call the callback to update parent state
+    onMasterPanChange(value);
 
     // Note: Master pan doesn't make sense for final stereo output
     // This would be for stereo width control instead
@@ -335,7 +384,7 @@ export const MixerPanel = memo(function MixerPanel({ tracks, onVolumeChange }: M
                 min="-40"
                 max="12"
                 step="1"
-                value={volumes[track.id] ?? 0}
+                value={trackVolumes[track.id] ?? 0}
                 onChange={(e) => handleVolumeChange(track.id, Number(e.target.value))}
                 className="w-24 origin-center -rotate-90 appearance-none bg-gray-700 rounded-full h-1.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-md"
               />
@@ -344,14 +393,14 @@ export const MixerPanel = memo(function MixerPanel({ tracks, onVolumeChange }: M
             {/* Volume display and Pan control - combined row */}
             <div className="flex items-center justify-between w-full mb-1 px-1">
               <div className="text-[9px] font-mono text-white">
-                {mutes[track.id] || (Object.values(solos).some(s => s) && !solos[track.id])
+                {trackMutes[track.id] || (Object.values(trackSolos).some(s => s) && !trackSolos[track.id])
                   ? "MUTE"
-                  : `${volumes[track.id] ?? 0}dB`}
+                  : `${trackVolumes[track.id] ?? 0}dB`}
               </div>
               <div className="text-[8px] font-mono text-green-400">
-                {pans[track.id] === 0 ? 'C' :
-                 pans[track.id] < 0 ? `L${Math.abs(pans[track.id])}` :
-                 `R${pans[track.id]}`}
+                {(trackPans[track.id] ?? 0) === 0 ? 'C' :
+                 (trackPans[track.id] ?? 0) < 0 ? `L${Math.abs(trackPans[track.id] ?? 0)}` :
+                 `R${trackPans[track.id] ?? 0}`}
               </div>
             </div>
 
@@ -362,8 +411,8 @@ export const MixerPanel = memo(function MixerPanel({ tracks, onVolumeChange }: M
                 min="-100"
                 max="100"
                 step="1"
-                value={pans[track.id] ?? 0}
-                onChange={(e) => handlePanChange(track.id, Number(e.target.value))}
+                value={trackPans[track.id] ?? 0}
+                onChange={(e) => handleLocalPanChange(track.id, Number(e.target.value))}
                 className="w-full appearance-none bg-gray-700 rounded-full h-1 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2 [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-green-500 [&::-webkit-slider-thumb]:cursor-pointer"
               />
             </div>
@@ -373,7 +422,7 @@ export const MixerPanel = memo(function MixerPanel({ tracks, onVolumeChange }: M
                 <button
                   onClick={() => toggleMute(track.id)}
                   className={`px-2 py-0.5 text-[10px] font-bold rounded transition-all ${
-                    mutes[track.id]
+                    trackMutes[track.id]
                       ? "bg-red-500 text-white"
                       : "bg-gray-700 text-gray-300 hover:bg-gray-600"
                   }`}
@@ -383,7 +432,7 @@ export const MixerPanel = memo(function MixerPanel({ tracks, onVolumeChange }: M
                 <button
                   onClick={() => toggleSolo(track.id)}
                   className={`px-2 py-0.5 text-[10px] font-bold rounded transition-all ${
-                    solos[track.id]
+                    trackSolos[track.id]
                       ? "bg-yellow-500 text-white"
                       : "bg-gray-700 text-gray-300 hover:bg-gray-600"
                   }`}
@@ -444,7 +493,7 @@ export const MixerPanel = memo(function MixerPanel({ tracks, onVolumeChange }: M
               max="12"
               step="1"
               value={masterVolume}
-              onChange={(e) => handleMasterVolumeChange(Number(e.target.value))}
+              onChange={(e) => handleLocalMasterVolumeChange(Number(e.target.value))}
               className="w-24 origin-center -rotate-90 appearance-none bg-gray-700 rounded-full h-1.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-md"
             />
           </div>
@@ -469,7 +518,7 @@ export const MixerPanel = memo(function MixerPanel({ tracks, onVolumeChange }: M
               max="100"
               step="1"
               value={masterPan}
-              onChange={(e) => handleMasterPanChange(Number(e.target.value))}
+              onChange={(e) => handleLocalMasterPanChange(Number(e.target.value))}
               className="w-full appearance-none bg-gray-700 rounded-full h-1 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2 [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-green-500 [&::-webkit-slider-thumb]:cursor-pointer"
             />
           </div>

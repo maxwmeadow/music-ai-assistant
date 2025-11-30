@@ -100,30 +100,48 @@ export function Timeline({
     if (draggingNote?.committed && draggingNote.currentStart !== undefined) {
       // Verify the DSL has actually been updated with the new position
       const notes = parseNotesFromDSL(dslCode, draggingNote.trackId, tempo);
-      const note = notes[draggingNote.noteIndex];
 
-      // Only clear visual state if the DSL matches our expected position (within tolerance)
-      if (note && Math.abs(note.start - draggingNote.currentStart) < 0.01) {
+      // Check if ANY note in the track matches our expected position
+      // (Note index may have changed due to re-ordering after DSL update)
+      const matchingNote = notes.find(n => Math.abs(n.start - draggingNote.currentStart) < 0.01);
+
+      if (matchingNote) {
         requestAnimationFrame(() => {
           setDraggingNote(null);
         });
+      } else {
+        // Fallback: clear after 500ms even if DSL doesn't match
+        // This prevents stuck drag states from note re-ordering edge cases
+        const timeout = setTimeout(() => {
+          setDraggingNote(null);
+        }, 500);
+        return () => clearTimeout(timeout);
       }
     } else if (resizingNote?.committed && resizingNote.currentDuration !== undefined) {
       // Verify the DSL has actually been updated with the new duration
       const notes = parseNotesFromDSL(dslCode, resizingNote.trackId, tempo);
-      const note = notes[resizingNote.noteIndex];
 
-      // Only clear visual state if the DSL matches our expected duration (within tolerance)
-      if (note && Math.abs(note.duration - resizingNote.currentDuration) < 0.01) {
+      // Check if ANY note in the track matches our expected duration
+      // (Note index may have changed due to re-ordering after DSL update)
+      const matchingNote = notes.find(n => Math.abs(n.duration - resizingNote.currentDuration) < 0.01);
+
+      if (matchingNote) {
         requestAnimationFrame(() => {
           setResizingNote(null);
         });
+      } else {
+        // Fallback: clear after 500ms even if DSL doesn't match
+        const timeout = setTimeout(() => {
+          setResizingNote(null);
+        }, 500);
+        return () => clearTimeout(timeout);
       }
     }
   }, [dslCode, draggingNote, resizingNote]);
 
   const handleNoteMouseDown = (e: React.MouseEvent, trackId: string, noteIndex: number, isResize: boolean) => {
     e.stopPropagation();
+    e.preventDefault(); // Prevent text selection
     const notes = parseNotesFromDSL(dslCode, trackId, tempo);
     const note = notes[noteIndex];
 
@@ -184,6 +202,8 @@ export function Timeline({
 
   const handleMouseMove = (e: MouseEvent) => {
     if (draggingNote && !draggingNote.committed) {
+      e.preventDefault(); // Prevent text selection during drag
+
       // Only update if not committed (still actively dragging)
       const deltaX = e.clientX - draggingNote.startX;
       const newStart = calculateNoteDrag(deltaX, zoom, draggingNote.initialStart, snapValue, snapEnabled);
@@ -193,6 +213,8 @@ export function Timeline({
         currentStart: newStart
       });
     } else if (resizingNote && !resizingNote.committed) {
+      e.preventDefault(); // Prevent text selection during drag
+
       // Only update if not committed (still actively resizing)
       const deltaX = e.clientX - resizingNote.startX;
       const newDuration = calculateNoteResize(deltaX, zoom, resizingNote.initialDuration, snapValue, snapEnabled);
@@ -221,7 +243,12 @@ export function Timeline({
       } else {
         handleNoteDrag(deltaBeats * zoom, zoom, draggingNote, dslCode, tempo, snapValue, snapEnabled, onCodeChange);
       }
-    } else if (resizingNote && resizingNote.currentDuration !== undefined) {
+    } else if (draggingNote) {
+      // No drag happened, just clear the state immediately
+      setDraggingNote(null);
+    }
+
+    if (resizingNote && resizingNote.currentDuration !== undefined) {
       const deltaBeats = resizingNote.currentDuration - resizingNote.initialDuration;
 
       // Mark as committed to stop further mouse updates
@@ -232,6 +259,9 @@ export function Timeline({
 
       // Apply DSL changes (visual state will be cleared by useEffect when dslCode updates)
       handleNoteResize(deltaBeats * zoom, zoom, resizingNote, dslCode, tempo, snapValue, snapEnabled, onCodeChange);
+    } else if (resizingNote) {
+      // No resize happened, just clear the state immediately
+      setResizingNote(null);
     }
   };
 
@@ -252,6 +282,7 @@ export function Timeline({
 
   const handlePlayheadDrag = (e: MouseEvent) => {
     if (!isDraggingPlayhead || !onSeek || !timelineRef.current) return;
+    e.preventDefault(); // Prevent text selection during drag
 
     const rect = timelineRef.current.getBoundingClientRect();
     const dragX = e.clientX - rect.left + timelineRef.current.scrollLeft;
@@ -284,6 +315,7 @@ export function Timeline({
 
   const handleLoopDrag = (e: MouseEvent) => {
     if (!isDraggingLoop || !onLoopChange || !loopBarRef.current || !timelineRef.current) return;
+    e.preventDefault(); // Prevent text selection during drag
 
     const rect = loopBarRef.current.getBoundingClientRect();
     // Loop bar is inside scrolling content, so rect.left already accounts for scroll
@@ -356,14 +388,36 @@ export function Timeline({
         handleCopyNotes(selectedNotes, dslCode, tempo, setCopiedNotes);
       }
 
+      if (ctrlOrCmd && e.key === 'x') {
+        e.preventDefault();
+        // Cut: copy then delete
+        handleCopyNotes(selectedNotes, dslCode, tempo, setCopiedNotes);
+        handleDeleteNotes(selectedNotes, dslCode, tempo, onCodeChange, setSelectedNotes);
+      }
+
       if (ctrlOrCmd && e.key === 'v') {
         e.preventDefault();
         handlePasteNotes(copiedNotes, currentTime, dslCode, tempo, snapValue, snapEnabled, onCodeChange, setSelectedNotes);
       }
+
+      if (ctrlOrCmd && e.key === 'a') {
+        e.preventDefault();
+        // Select all editable notes (not loop-generated) across all tracks
+        const allSelectableNotes: SelectedNote[] = [];
+        tracks.forEach(track => {
+          const notes = parseNotesFromDSL(dslCode, track.id, tempo);
+          notes.forEach((note, idx) => {
+            if (!note.isFromLoop) {
+              allSelectableNotes.push({ trackId: track.id, noteIndex: idx });
+            }
+          });
+        });
+        setSelectedNotes(allSelectableNotes);
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedNotes, copiedNotes, currentTime]);
+  }, [selectedNotes, copiedNotes, currentTime, tracks, dslCode, tempo, snapValue, snapEnabled, onCodeChange]);
 
   // Auto-scroll to keep playhead visible (like DAWs)
   useEffect(() => {
@@ -654,9 +708,15 @@ export function Timeline({
                           const isPrimaryDrag = draggingNote?.trackId === track.id && draggingNote?.noteIndex === idx;
                           const isMultiDrag = draggingNote?.selectedNotes?.some(n => n.trackId === track.id && n.noteIndex === idx);
 
-                          if ((isPrimaryDrag || isMultiDrag) && draggingNote && draggingNote.currentStart !== undefined) {
-                            const delta = draggingNote.currentStart - draggingNote.initialStart;
-                            return (note.start + delta) * zoom;
+                          if (draggingNote && draggingNote.currentStart !== undefined) {
+                            if (isPrimaryDrag) {
+                              // Primary drag: use the exact dragged position
+                              return draggingNote.currentStart * zoom;
+                            } else if (isMultiDrag) {
+                              // Multi-drag: calculate delta and apply to this note
+                              const delta = draggingNote.currentStart - draggingNote.initialStart;
+                              return (note.start + delta) * zoom;
+                            }
                           }
                           return note.start * zoom;
                         })()}px`,
@@ -669,10 +729,27 @@ export function Timeline({
                       onMouseDown={(e) => handleNoteMouseDown(e, track.id, idx, false)}
                     >
                       <div className="text-xs text-white p-1 truncate pointer-events-none">
-                        {isDrumTrack(track.id, track.instrument || undefined)
-                          ? pitchToDrumName(note.pitch)
-                          : pitchToNote(note.pitch)
-                        }{note.isChord ? ' ♫' : ''}{note.isFromLoop ? ' 🔒' : ''}
+                        {(() => {
+                          const isDrum = isDrumTrack(track.id, track.instrument || undefined);
+                          const noteWidth = (resizingNote?.trackId === track.id && resizingNote?.noteIndex === idx && resizingNote.currentDuration !== undefined
+                            ? resizingNote.currentDuration * zoom
+                            : note.duration * zoom);
+
+                          // Smart collapsing: show all chord notes only if wide enough
+                          const minWidthForFullChord = 80; // Minimum width in px to show all chord notes
+
+                          if (note.isChord && note.chordPitches && noteWidth >= minWidthForFullChord) {
+                            // Wide enough: show all chord notes
+                            const allNotes = note.chordPitches
+                              .map(p => isDrum ? pitchToDrumName(p) : pitchToNote(p))
+                              .join(', ');
+                            return `${allNotes}${note.isFromLoop ? ' 🔒' : ''}`;
+                          } else {
+                            // Too narrow or single note: show root only
+                            const noteName = isDrum ? pitchToDrumName(note.pitch) : pitchToNote(note.pitch);
+                            return `${noteName}${note.isChord ? ' ♫' : ''}${note.isFromLoop ? ' 🔒' : ''}`;
+                          }
+                        })()}
                       </div>
 
                       {/* Resize handle - hidden for loop notes */}

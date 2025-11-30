@@ -38,6 +38,11 @@ export default function Home() {
   const [executableCode, setExecutableCode] = useState<string>("");
   const [tracks, setTracks] = useState<ParsedTrack[]>([]);
   const [trackVolumes, setTrackVolumes] = useState<Record<string, number>>({});
+  const [trackPans, setTrackPans] = useState<Record<string, number>>({});
+  const [trackMutes, setTrackMutes] = useState<Record<string, boolean>>({});
+  const [trackSolos, setTrackSolos] = useState<Record<string, boolean>>({});
+  const [masterVolume, setMasterVolume] = useState<number>(0);
+  const [masterPan, setMasterPan] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
@@ -695,9 +700,24 @@ export default function Home() {
         setCurrentIR(project.ir);
       }
 
-      // Restore track volumes if available
+      // Restore all mixer settings if available
       if (project.settings?.trackVolumes) {
         setTrackVolumes(project.settings.trackVolumes);
+      }
+      if (project.settings?.trackPans) {
+        setTrackPans(project.settings.trackPans);
+      }
+      if (project.settings?.trackMutes) {
+        setTrackMutes(project.settings.trackMutes);
+      }
+      if (project.settings?.trackSolos) {
+        setTrackSolos(project.settings.trackSolos);
+      }
+      if (project.settings?.masterVolume !== undefined) {
+        setMasterVolume(project.settings.masterVolume);
+      }
+      if (project.settings?.masterPan !== undefined) {
+        setMasterPan(project.settings.masterPan);
       }
 
       // Compile the imported DSL
@@ -989,10 +1009,12 @@ export default function Home() {
       <div className="flex-none h-16 bg-[#252525] border-b border-gray-800 flex items-center px-4 gap-4">
         {/* Logo */}
         <div className="flex items-center gap-2 mr-4">
-          <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
-            <Music className="w-5 h-5 text-white" />
-          </div>
-          <span className="text-white font-bold text-lg">Studio</span>
+          <img
+            src="/phonautoicon.png"
+            alt="Phonauto"
+            className="w-8 h-8 rounded-lg"
+          />
+          <span className="text-white font-bold text-lg">Phonauto</span>
         </div>
 
         {/* File Menu */}
@@ -1008,6 +1030,11 @@ export default function Home() {
             }}
             settings={{
               trackVolumes: trackVolumes,
+              trackPans: trackPans,
+              trackMutes: trackMutes,
+              trackSolos: trackSolos,
+              masterVolume: masterVolume,
+              masterPan: masterPan,
             }}
             onProjectImport={handleProjectImport}
             onMIDIImport={handleMIDIImport}
@@ -1251,14 +1278,28 @@ export default function Home() {
       {/* BOTTOM PANEL - Mixer (Toggleable) */}
       {showMixer && tracks.length > 0 && (
         <div className="flex-none h-56 bg-[#252525] border-t border-gray-800 overflow-x-auto overflow-y-hidden p-3">
-          <MixerPanel tracks={tracks} onVolumeChange={handleVolumeChange} />
+          <MixerPanel
+            tracks={tracks}
+            trackVolumes={trackVolumes}
+            trackPans={trackPans}
+            trackMutes={trackMutes}
+            trackSolos={trackSolos}
+            masterVolume={masterVolume}
+            masterPan={masterPan}
+            onVolumeChange={handleVolumeChange}
+            onPanChange={(trackId, pan) => setTrackPans(prev => ({ ...prev, [trackId]: pan }))}
+            onMuteChange={(trackId, muted) => setTrackMutes(prev => ({ ...prev, [trackId]: muted }))}
+            onSoloChange={(trackId, soloed) => setTrackSolos(prev => ({ ...prev, [trackId]: soloed }))}
+            onMasterVolumeChange={setMasterVolume}
+            onMasterPanChange={setMasterPan}
+          />
         </div>
       )}
 
       {/* Piano Roll Overlay */}
       {selectedTrackForPianoRoll && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-40">
-          <div className="bg-[#1e1e1e] border border-gray-700 rounded-xl w-[90vw] h-[80vh] flex flex-col shadow-2xl">
+          <div className="bg-[#1e1e1e] border border-gray-700 rounded-xl w-[95vw] h-[90vh] flex flex-col shadow-2xl">
             <div className="flex-none px-4 py-3 bg-[#252525] border-b border-gray-800 flex items-center justify-between rounded-t-xl">
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
                 <Piano className="w-5 h-5 text-purple-400" />
@@ -1273,7 +1314,7 @@ export default function Home() {
                 </svg>
               </button>
             </div>
-            <div className="flex-1 overflow-hidden p-4">
+            <div className="flex-1 flex flex-col min-h-0">
               <PianoRoll
                 track={tracks.find(t => t.id === selectedTrackForPianoRoll)!}
                 dslCode={code}

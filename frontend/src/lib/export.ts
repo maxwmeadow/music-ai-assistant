@@ -19,6 +19,11 @@ export interface ProjectFile {
     loopStart: number;
     loopEnd: number;
     trackVolumes: Record<string, number>;
+    trackPans: Record<string, number>;
+    trackMutes: Record<string, boolean>;
+    trackSolos: Record<string, boolean>;
+    masterVolume: number;
+    masterPan: number;
   };
   dsl: string;              // Raw DSL code
   ir?: any;                 // Optional IR representation
@@ -79,6 +84,11 @@ export function createProjectFile(
     loopStart?: number;
     loopEnd?: number;
     trackVolumes?: Record<string, number>;
+    trackPans?: Record<string, number>;
+    trackMutes?: Record<string, boolean>;
+    trackSolos?: Record<string, boolean>;
+    masterVolume?: number;
+    masterPan?: number;
   },
   ir?: any
 ): ProjectFile {
@@ -100,6 +110,11 @@ export function createProjectFile(
       loopStart: settings.loopStart || 0,
       loopEnd: settings.loopEnd || 0,
       trackVolumes: settings.trackVolumes || {},
+      trackPans: settings.trackPans || {},
+      trackMutes: settings.trackMutes || {},
+      trackSolos: settings.trackSolos || {},
+      masterVolume: settings.masterVolume ?? 0,
+      masterPan: settings.masterPan ?? 0,
     },
     dsl,
     ir,

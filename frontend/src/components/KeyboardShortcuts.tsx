@@ -49,7 +49,6 @@ export function KeyboardShortcuts({ isOpen, onClose }: KeyboardShortcutsProps) {
       { keys: [modKey, 'C'], description: "Copy selected notes" },
       { keys: [modKey, 'X'], description: "Cut selected notes" },
       { keys: [modKey, 'V'], description: "Paste notes" },
-      { keys: [modKey, 'D'], description: "Duplicate selected notes" },
     ]},
     { category: "Notes", items: [
       { keys: ['Delete'], description: "Delete selected notes" },
