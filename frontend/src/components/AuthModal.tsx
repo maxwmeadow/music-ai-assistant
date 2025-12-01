@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { X, Mail, Lock, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -15,6 +15,16 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [showVerification, setShowVerification] = useState(false);
+
+    // Reset form when modal closes
+    useEffect(() => {
+        if (!isOpen) {
+            setEmail('');
+            setPassword('');
+            setShowVerification(false);
+            setIsLogin(true);
+        }
+    }, [isOpen]);
 
     if (!isOpen) return null;
 

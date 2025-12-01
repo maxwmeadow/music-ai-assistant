@@ -38,6 +38,10 @@ export function CloudProjectModal({
         try {
             const list = await CloudService.listProjects();
             setProjects(list);
+        } catch (error) {
+            console.error('Failed to load projects:', error);
+            toast.error('Failed to load projects');
+            setProjects([]);
         } finally {
             setLoading(false);
         }
