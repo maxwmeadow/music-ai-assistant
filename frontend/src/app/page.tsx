@@ -20,6 +20,8 @@ import { ProjectFile } from "@/lib/export";
 import { TrackNameModal } from "@/components/TrackNameModal";
 import ArrangerModal, { ArrangementConfig } from "@/components/ArrangerModal";
 import { toast, Toaster } from "sonner";
+import { Tutorial } from "@/components/Tutorial";
+import { TUTORIAL_STEPS } from "@/config/tutorialSteps";
 
 export default function Home() {
   const { pushHistory, undo, redo, canUndo, canRedo, currentState: code } = useHistory("// Your generated music code will appear here...");
@@ -512,7 +514,7 @@ export default function Home() {
   useEffect(() => {
     const originalLog = console.log;
 
-    console.log = function(...args: any[]) {
+    console.log = function (...args: any[]) {
       originalLog.apply(console, args);
 
       const message = args.join(' ');
@@ -818,10 +820,10 @@ export default function Home() {
 
       // Check if Monaco editor is focused - if so, skip ALL our shortcuts to allow Monaco's native behavior
       const isMonacoFocused = target.classList.contains('monaco-editor') ||
-          target.closest('.monaco-editor') ||
-          target.classList.contains('view-line') ||
-          target.classList.contains('inputarea') ||
-          target.getAttribute('data-mode-id') !== null;
+        target.closest('.monaco-editor') ||
+        target.classList.contains('view-line') ||
+        target.classList.contains('inputarea') ||
+        target.getAttribute('data-mode-id') !== null;
 
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
@@ -909,6 +911,9 @@ export default function Home() {
 
   return (
     <div className="h-screen flex flex-col bg-[#1a1a1a] overflow-hidden">
+      {/* Tutorial for first-time users */}
+      <Tutorial steps={TUTORIAL_STEPS} />
+
       {/* Keyboard Shortcuts Modal */}
       <KeyboardShortcuts
         isOpen={showKeyboardShortcuts}
@@ -1006,9 +1011,9 @@ export default function Home() {
       )}
 
       {/* Top Toolbar */}
-      <div className="flex-none h-16 bg-[#252525] border-b border-gray-800 flex items-center px-4 gap-4">
+      <div className="flex-none h-16 bg-[#252525] border-b border-gray-800 flex items-center px-4 gap-4 overflow-x-auto">
         {/* Logo */}
-        <div className="flex items-center gap-2 mr-4">
+        <div className="flex items-center gap-2 mr-4 flex-shrink-0 select-none">
           <img
             src="/phonautoicon.png"
             alt="Phonauto"
@@ -1018,7 +1023,7 @@ export default function Home() {
         </div>
 
         {/* File Menu */}
-        <div className="border-r border-gray-700 pr-4">
+        <div className="border-r border-gray-700 pr-4 flex-shrink-0">
           <FileMenu
             dslCode={code}
             tracks={tracks}
@@ -1043,8 +1048,9 @@ export default function Home() {
         </div>
 
         {/* Model Buttons */}
-        <div className="flex items-center gap-2 border-r border-gray-700 pr-4">
+        <div className="flex items-center gap-2 border-r border-gray-700 pr-4 flex-shrink-0">
           <button
+            id="hum2melody-button"
             onClick={() => openRecorder('melody')}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors text-sm font-medium"
           >
@@ -1052,6 +1058,7 @@ export default function Home() {
             Hum2Melody
           </button>
           <button
+            id="beatbox2drums-button"
             onClick={() => openRecorder('drums')}
             className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded-lg transition-colors text-sm font-medium"
           >
@@ -1059,6 +1066,7 @@ export default function Home() {
             Beatbox2Drums
           </button>
           <button
+            id="arranger-button"
             onClick={() => setShowArrangerModal(true)}
             disabled={!code || code.trim() === "// Your generated music code will appear here..."}
             className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 disabled:text-gray-400 text-white rounded-lg text-sm font-medium transition-colors disabled:cursor-not-allowed"
@@ -1070,9 +1078,10 @@ export default function Home() {
         </div>
 
         {/* Transport Controls */}
-        <div className="flex items-center gap-2 border-r border-gray-700 pr-4">
+        <div className="flex items-center gap-2 border-r border-gray-700 pr-4 flex-shrink-0">
           {!isPlaying ? (
             <button
+              id="play-button"
               disabled={loadingPlay || !executableCode || isLoadingAudio}
               onClick={playAudio}
               className="flex items-center justify-center w-10 h-10 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg transition-colors"
@@ -1093,11 +1102,10 @@ export default function Home() {
 
           <button
             onClick={() => setMetronomeEnabled(!metronomeEnabled)}
-            className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors ${
-              metronomeEnabled
-                ? 'bg-blue-600 hover:bg-blue-500 text-white'
-                : 'bg-[#2a2a2a] hover:bg-[#333] text-gray-400 border border-gray-700'
-            }`}
+            className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors ${metronomeEnabled
+              ? 'bg-blue-600 hover:bg-blue-500 text-white'
+              : 'bg-[#2a2a2a] hover:bg-[#333] text-gray-400 border border-gray-700'
+              }`}
             title={metronomeEnabled ? "Metronome On (M)" : "Metronome Off (M)"}
           >
             <Radio className="w-5 h-5" />
@@ -1106,17 +1114,17 @@ export default function Home() {
           {/* Loop Controls */}
           <button
             onClick={() => setLoopEnabled(!loopEnabled)}
-            className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors ${
-              loopEnabled
-                ? 'bg-purple-600 hover:bg-purple-500 text-white'
-                : 'bg-[#2a2a2a] hover:bg-[#333] text-gray-400 border border-gray-700'
-            }`}
+            className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors ${loopEnabled
+              ? 'bg-purple-600 hover:bg-purple-500 text-white'
+              : 'bg-[#2a2a2a] hover:bg-[#333] text-gray-400 border border-gray-700'
+              }`}
             title={loopEnabled ? `Loop ${loopStart.toFixed(1)}s - ${loopEnd.toFixed(1)}s` : "Loop Off (L)"}
           >
             <Repeat className="w-5 h-5" />
           </button>
 
           <button
+            id="compile-button"
             disabled={loadingRun}
             onClick={sendToRunner}
             className="px-4 py-2 bg-[#2a2a2a] hover:bg-[#333] disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors border border-gray-700"
@@ -1126,7 +1134,7 @@ export default function Home() {
         </div>
 
         {/* Undo/Redo Controls */}
-        <div className="flex items-center gap-2 border-r border-gray-700 pr-4">
+        <div className="flex items-center gap-2 border-r border-gray-700 pr-4 flex-shrink-0">
           <button
             disabled={!canUndo}
             onClick={undo}
@@ -1146,14 +1154,14 @@ export default function Home() {
         </div>
 
         {/* Panel Toggles */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-shrink-0">
           <button
+            id="mixer-button"
             onClick={() => setShowMixer(!showMixer)}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-              showMixer
-                ? 'bg-blue-600 text-white'
-                : 'bg-[#2a2a2a] text-gray-300 hover:bg-[#333] border border-gray-700'
-            }`}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${showMixer
+              ? 'bg-blue-600 text-white'
+              : 'bg-[#2a2a2a] text-gray-300 hover:bg-[#333] border border-gray-700'
+              }`}
           >
             <Sliders className="w-4 h-4" />
             Mixer
@@ -1194,8 +1202,9 @@ export default function Home() {
         </div>
 
         {/* Right side - test button */}
-        <div className="ml-auto">
+        <div className="ml-auto flex-shrink-0">
           <button
+            id="load-sample-button"
             disabled={loadingTest}
             onClick={fetchTest}
             className="px-4 py-2 bg-[#2a2a2a] hover:bg-[#333] disabled:opacity-50 text-gray-300 border border-gray-700 rounded-lg text-sm transition-colors"
@@ -1213,7 +1222,7 @@ export default function Home() {
           style={{ width: `${leftPanelWidth}%` }}
         >
           <div className="flex-none px-4 py-3 bg-[#252525] border-b border-gray-800">
-            <h2 className="text-sm font-semibold text-gray-300">ARRANGEMENT</h2>
+            <h2 className="text-sm font-semibold text-gray-300 select-none">ARRANGEMENT</h2>
           </div>
           <div className="flex-1 overflow-hidden p-4">
             {tracks.length > 0 ? (
@@ -1242,8 +1251,8 @@ export default function Home() {
               <div className="h-full flex items-center justify-center text-gray-500">
                 <div className="text-center">
                   <Music className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                  <p className="text-sm">No tracks yet</p>
-                  <p className="text-xs mt-1">Record audio or load sample to get started</p>
+                  <p className="text-sm select-none">No tracks yet</p>
+                  <p className="text-xs mt-1 select-none">Record audio or load sample to get started</p>
                 </div>
               </div>
             )}
@@ -1252,9 +1261,8 @@ export default function Home() {
 
         {/* RESIZE BAR */}
         <div
-          className={`w-1 bg-gray-800 hover:bg-blue-500 cursor-col-resize flex-shrink-0 relative group transition-colors ${
-            isResizing ? 'bg-blue-500' : ''
-          }`}
+          className={`w-1 bg-gray-800 hover:bg-blue-500 cursor-col-resize flex-shrink-0 relative group transition-colors ${isResizing ? 'bg-blue-500' : ''
+            }`}
           onMouseDown={handleMouseDown}
         >
           {/* Visual indicator on hover */}
@@ -1267,7 +1275,7 @@ export default function Home() {
           style={{ width: `${100 - leftPanelWidth}%` }}
         >
           <div className="flex-none px-4 py-3 bg-[#252525] border-b border-gray-800">
-            <h2 className="text-sm font-semibold text-gray-300">CODE EDITOR</h2>
+            <h2 className="text-sm font-semibold text-gray-300 select-none">CODE EDITOR</h2>
           </div>
           <div className="flex-1 overflow-hidden">
             <CodeEditor value={code} onChange={setCode} />

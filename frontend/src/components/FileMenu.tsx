@@ -196,6 +196,7 @@ export function FileMenu({
     <div className="relative">
       {/* File Menu Button */}
       <button
+        id="file-menu"
         onClick={() => setIsOpen(!isOpen)}
         className="px-4 py-2 rounded-lg border border-white/20 bg-gray-800 hover:bg-gray-700 text-white font-medium transition-colors flex items-center gap-2"
         title="File operations (Ctrl+Shift+F)"
