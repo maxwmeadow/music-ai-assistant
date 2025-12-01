@@ -2,7 +2,7 @@ __pycache__/
 *.pyc
 .venv/
 .env
-
+.env.local
 node_modules/
 .next/
 npm-debug.log

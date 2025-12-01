@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useRef } from 'react';
-import { Download, Upload, FileText, Music, Save, FolderOpen, FileMusic } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Download, Upload, FileText, Music, Save, FolderOpen, FileMusic, Cloud } from 'lucide-react';
 import { exportProject, createProjectFile, ProjectFile } from '@/lib/export';
 import { importProject, isValidProjectFile } from '@/lib/import';
 import { downloadMIDI } from '@/lib/midi-export';
@@ -55,6 +55,32 @@ export function FileMenu({
   const [exportProgress, setExportProgress] = useState(0);
   const projectInputRef = useRef<HTMLInputElement>(null);
   const midiInputRef = useRef<HTMLInputElement>(null);
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const updatePosition = () => {
+      if (menuRef.current && isOpen) {
+        const rect = menuRef.current.getBoundingClientRect();
+        setDropdownPosition({
+          top: rect.bottom + 8,
+          left: rect.left
+        });
+      }
+    };
+
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+
+    if (isOpen) {
+      updatePosition();
+    }
+
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [isOpen]);
 
   // Export Project (JSON)
   const handleExportProject = () => {
@@ -193,7 +219,7 @@ export function FileMenu({
   };
 
   return (
-    <div className="relative">
+    <div className="relative" ref={menuRef}>
       {/* File Menu Button */}
       <button
         id="file-menu"
@@ -207,7 +233,46 @@ export function FileMenu({
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div className="absolute top-12 left-0 bg-[#1e1e1e] border border-gray-700 rounded-lg shadow-2xl z-50 w-72 overflow-hidden">
+        <div
+          className="fixed bg-[#1e1e1e] border border-gray-700 rounded-lg shadow-2xl z-50 w-72 overflow-hidden"
+          style={{ top: dropdownPosition.top, left: dropdownPosition.left }}
+        >
+          {/* Cloud Section */}
+          <div className="border-b border-gray-700">
+            <div className="px-3 py-2 bg-[#252525] text-xs font-bold text-gray-400 uppercase flex items-center gap-2">
+              <Cloud size={12} />
+              Cloud
+            </div>
+
+            <button
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent('open-cloud-save'));
+                setIsOpen(false);
+              }}
+              className="w-full px-4 py-3 hover:bg-[#2a2a2a] text-left flex items-center gap-3 transition-colors"
+            >
+              <Save size={18} className="text-blue-400" />
+              <div className="flex-1">
+                <div className="text-white font-medium text-sm">Save to Cloud</div>
+                <div className="text-gray-500 text-xs">Save to your account</div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent('open-cloud-load'));
+                setIsOpen(false);
+              }}
+              className="w-full px-4 py-3 hover:bg-[#2a2a2a] text-left flex items-center gap-3 transition-colors"
+            >
+              <Cloud size={18} className="text-green-400" />
+              <div className="flex-1">
+                <div className="text-white font-medium text-sm">Open from Cloud</div>
+                <div className="text-gray-500 text-xs">Load from your account</div>
+              </div>
+            </button>
+          </div>
+
           {/* Export Section */}
           <div className="border-b border-gray-700">
             <div className="px-3 py-2 bg-[#252525] text-xs font-bold text-gray-400 uppercase">

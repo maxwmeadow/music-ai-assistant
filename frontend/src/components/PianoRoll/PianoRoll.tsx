@@ -806,7 +806,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
         // Update velocity for ALL notes at this time position (entire chord)
         notes.forEach((note, idx) => {
           if (Math.abs(note.start - startTime) < 0.001) {
-            notes[idx].velocity = prev.currentVelocity;
+            notes[idx].velocity = prev.currentVelocity || 0.8;
           }
         });
 
@@ -925,11 +925,10 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
             {(onPlay || onStop) && (
               <button
                 onClick={isPlaying ? onStop : onPlay}
-                className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors ${
-                  isPlaying
+                className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors ${isPlaying
                     ? 'bg-red-600 hover:bg-red-500'
                     : 'bg-blue-600 hover:bg-blue-500'
-                } text-white`}
+                  } text-white`}
                 title={isPlaying ? "Stop Playback" : "Play Track"}
               >
                 {isPlaying ? 'STOP' : 'PLAY'}
@@ -938,11 +937,10 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
             {onSolo && (
               <button
                 onClick={onSolo}
-                className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors ${
-                  isSoloed
+                className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors ${isSoloed
                     ? 'bg-yellow-600 text-white'
                     : 'bg-white/10 text-gray-400 hover:bg-white/20'
-                }`}
+                  }`}
                 title={isSoloed ? "Unsolo Track" : "Solo Track"}
               >
                 {isSoloed ? 'SOLOED' : 'SOLO'}
@@ -955,8 +953,8 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
             <button
               onClick={() => setSnapEnabled(!snapEnabled)}
               className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors ${snapEnabled
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-white/10 text-gray-400'
+                ? 'bg-blue-600 text-white'
+                : 'bg-white/10 text-gray-400'
                 }`}
             >
               SNAP
@@ -1058,19 +1056,19 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
                 <div
                   key={pitch}
                   className={`border-b border-gray-700 ${!hasSample
-                      ? 'bg-gray-950 cursor-not-allowed'
-                      : isBlack
-                        ? 'bg-gray-800 hover:bg-gray-700 cursor-pointer'
-                        : 'bg-gray-100 hover:bg-gray-200 cursor-pointer'
+                    ? 'bg-gray-950 cursor-not-allowed'
+                    : isBlack
+                      ? 'bg-gray-800 hover:bg-gray-700 cursor-pointer'
+                      : 'bg-gray-100 hover:bg-gray-200 cursor-pointer'
                     } transition-colors`}
                   style={{ height: `${NOTE_HEIGHT}px` }}
                   onClick={() => hasSample && handlePianoKeyClick(pitch)}
                 >
                   <span className={`text-xs px-2 ${!hasSample
-                      ? 'text-gray-700'
-                      : isBlack
-                        ? 'text-gray-400'
-                        : 'text-gray-600'
+                    ? 'text-gray-700'
+                    : isBlack
+                      ? 'text-gray-400'
+                      : 'text-gray-600'
                     }`}>
                     {isC && pitchToNote(pitch)}
                     {!hasSample && ' ×'}
@@ -1092,10 +1090,10 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
                 <div
                   key={pitch}
                   className={`absolute border-b ${!hasSample
-                      ? 'bg-gray-950/50 border-gray-800/30'
-                      : isBlack
-                        ? 'bg-gray-900 border-gray-800'
-                        : 'bg-gray-950 border-gray-700'
+                    ? 'bg-gray-950/50 border-gray-800/30'
+                    : isBlack
+                      ? 'bg-gray-900 border-gray-800'
+                      : 'bg-gray-950 border-gray-700'
                     }`}
                   style={{
                     top: `${i * NOTE_HEIGHT}px`,
@@ -1190,15 +1188,14 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
               return (
                 <div
                   key={idx}
-                  className={`absolute rounded ${isFromLoop ? 'cursor-not-allowed' : 'cursor-move'} ${
-                    !hasSample
+                  className={`absolute rounded ${isFromLoop ? 'cursor-not-allowed' : 'cursor-move'} ${!hasSample
                       ? 'bg-red-500/50 border-2 border-red-600'
                       : isFromLoop
                         ? 'bg-gray-600 border border-gray-500'
                         : note.isChord
                           ? 'bg-blue-500'
                           : 'bg-blue-600'
-                  } ${isSelected ? 'ring-2 ring-white' : ''} ${!isFromLoop && 'hover:brightness-110'}`}
+                    } ${isSelected ? 'ring-2 ring-white' : ''} ${!isFromLoop && 'hover:brightness-110'}`}
                   style={{
                     left: `${beatToX(displayStart)}px`,
                     top: `${pitchToY(displayPitch) + 1}px`,
@@ -1316,8 +1313,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
                 return (
                   <div
                     key={idx}
-                    className={`absolute ${isFromLoop ? 'cursor-not-allowed' : 'cursor-ns-resize'} ${
-                      isFromLoop
+                    className={`absolute ${isFromLoop ? 'cursor-not-allowed' : 'cursor-ns-resize'} ${isFromLoop
                         ? 'bg-gradient-to-t from-gray-600 via-gray-500 to-gray-400'
                         : isSelected
                           ? 'bg-gradient-to-t from-blue-500 via-blue-400 to-blue-300'
