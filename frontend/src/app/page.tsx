@@ -16,12 +16,14 @@ import { KeyboardShortcuts } from "@/components/KeyboardShortcuts";
 import { AudioService } from "@/services/audioService";
 import { DSLService } from "@/services/dslService";
 import { FileMenu } from "@/components/FileMenu";
-import { ProjectFile } from "@/lib/export";
+import { ProjectFile, createProjectFile } from "@/lib/export";
 import { TrackNameModal } from "@/components/TrackNameModal";
 import ArrangerModal, { ArrangementConfig } from "@/components/ArrangerModal";
 import { toast, Toaster } from "sonner";
 import { Tutorial } from "@/components/Tutorial";
 import { TUTORIAL_STEPS } from "@/config/tutorialSteps";
+import { UserMenu } from "@/components/UserMenu";
+import { CloudProjectModal } from "@/components/CloudProjectModal";
 
 export default function Home() {
   const { pushHistory, undo, redo, canUndo, canRedo, currentState: code } = useHistory("// Your generated music code will appear here...");
@@ -79,6 +81,10 @@ export default function Home() {
   // Resizable panels
   const [leftPanelWidth, setLeftPanelWidth] = useState(50); // percentage
   const [isResizing, setIsResizing] = useState(false);
+
+  // Cloud Project Modal
+  const [showCloudModal, setShowCloudModal] = useState(false);
+  const [cloudModalMode, setCloudModalMode] = useState<'save' | 'load'>('save');
 
   const showToast = (message: string) => {
     toast(message);
@@ -532,6 +538,27 @@ export default function Home() {
     };
   }, []);
 
+  // Listen for cloud events from FileMenu
+  useEffect(() => {
+    const handleOpenCloudSave = () => {
+      setCloudModalMode('save');
+      setShowCloudModal(true);
+    };
+
+    const handleOpenCloudLoad = () => {
+      setCloudModalMode('load');
+      setShowCloudModal(true);
+    };
+
+    window.addEventListener('open-cloud-save', handleOpenCloudSave);
+    window.addEventListener('open-cloud-load', handleOpenCloudLoad);
+
+    return () => {
+      window.removeEventListener('open-cloud-save', handleOpenCloudSave);
+      window.removeEventListener('open-cloud-load', handleOpenCloudLoad);
+    };
+  }, []);
+
   const handleMelodyGenerated = async (result: any) => {
     console.log("[DEBUG] handleMelodyGenerated called with:", result);
     console.log("[DEBUG] Has visualization?", !!result.visualization);
@@ -951,6 +978,34 @@ export default function Home() {
         onGenerate={handleArrangerGenerate}
       />
 
+      {/* Cloud Project Modal */}
+      <CloudProjectModal
+        isOpen={showCloudModal}
+        onClose={() => setShowCloudModal(false)}
+        mode={cloudModalMode}
+        currentProjectData={createProjectFile(
+          code,
+          tracks,
+          {
+            title: "Untitled Project",
+            tempo: 120,
+          },
+          {
+            trackVolumes,
+            trackPans,
+            trackMutes,
+            trackSolos,
+            masterVolume,
+            masterPan,
+            loopEnabled,
+            loopStart,
+            loopEnd
+          },
+          currentIR
+        )}
+        onLoadProject={handleProjectImport}
+      />
+
       {/* Toast */}
       <Toaster
         position="top-right"
@@ -1040,6 +1095,9 @@ export default function Home() {
               trackSolos: trackSolos,
               masterVolume: masterVolume,
               masterPan: masterPan,
+              loopEnabled,
+              loopStart,
+              loopEnd
             }}
             onProjectImport={handleProjectImport}
             onMIDIImport={handleMIDIImport}
@@ -1202,7 +1260,7 @@ export default function Home() {
         </div>
 
         {/* Right side - test button */}
-        <div className="ml-auto flex-shrink-0">
+        <div className="ml-auto flex-shrink-0 flex items-center gap-4">
           <button
             id="load-sample-button"
             disabled={loadingTest}
@@ -1211,6 +1269,14 @@ export default function Home() {
           >
             {loadingTest ? "Loading..." : "Load Sample"}
           </button>
+
+          {/* User Menu */}
+          <div className="border-l border-gray-700 pl-4">
+            <UserMenu onOpenCloudProjects={() => {
+              setCloudModalMode('load');
+              setShowCloudModal(true);
+            }} />
+          </div>
         </div>
       </div>
 
