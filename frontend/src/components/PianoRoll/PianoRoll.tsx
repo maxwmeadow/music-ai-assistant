@@ -60,6 +60,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
   } | null>(null);
   const [resizingNote, setResizingNote] = useState<{
     noteIndex: number;
+    chordIndices: number[]; // All notes in the chord (including noteIndex)
     startX: number;
     initialDuration: number;
     currentDuration?: number;
@@ -458,8 +459,27 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
     }
 
     if (isResize) {
+      // If this is a chord note, find all notes at the same start time
+      const noteToResize = notes[noteIndex];
+      let chordIndices = [noteIndex];
+
+      if (noteToResize.isChord) {
+        const chordStartTime = noteToResize.start;
+        chordIndices = notes
+          .map((n, idx) => ({ note: n, idx }))
+          .filter(({ note }) =>
+            note.isChord &&
+            Math.abs(note.start - chordStartTime) < 0.001 && // Same start time (with tolerance)
+            !note.isFromLoop // Don't include loop-generated notes
+          )
+          .map(({ idx }) => idx);
+
+        console.log(`[PianoRoll] Resizing chord with ${chordIndices.length} notes at time ${chordStartTime}`);
+      }
+
       setResizingNote({
         noteIndex,
+        chordIndices,
         startX: e.clientX,
         initialDuration: notes[noteIndex].duration
       });
@@ -521,7 +541,13 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
 
     if (resizingNote && resizingNote.currentDuration !== undefined) {
       const notes = parseNotes();
-      notes[resizingNote.noteIndex].duration = resizingNote.currentDuration;
+
+      // Update duration for all notes in the chord
+      resizingNote.chordIndices.forEach(idx => {
+        notes[idx].duration = resizingNote.currentDuration!;
+      });
+
+      console.log(`[PianoRoll] Updated duration for ${resizingNote.chordIndices.length} chord notes to ${resizingNote.currentDuration}`);
       updateNotes(notes);
     }
 
@@ -1146,7 +1172,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
 
               // Check if this note is being dragged or resized
               const isDragging = draggingNote?.noteIndex === idx;
-              const isResizing = resizingNote?.noteIndex === idx;
+              const isResizing = resizingNote?.chordIndices?.includes(idx) ?? false;
 
               // Use current position if dragging, otherwise use note position
               const displayStart = (isDragging && draggingNote.currentStart !== undefined)
@@ -1155,7 +1181,7 @@ export function PianoRoll({ track, dslCode, onCodeChange, isPlaying, currentTime
               const displayPitch = (isDragging && draggingNote.currentPitch !== undefined)
                 ? draggingNote.currentPitch
                 : note.pitch;
-              const displayDuration = (isResizing && resizingNote.currentDuration !== undefined)
+              const displayDuration = (isResizing && resizingNote?.currentDuration !== undefined)
                 ? resizingNote.currentDuration
                 : note.duration;
 
