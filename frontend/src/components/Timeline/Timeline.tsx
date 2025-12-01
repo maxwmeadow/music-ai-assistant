@@ -10,7 +10,8 @@ import {
   pitchToNote,
   pitchToDrumName,
   isDrumTrack,
-  parseNotesFromDSL
+  parseNotesFromDSL,
+  updateDSLWithNewNotes
 } from "./timelineHelpers";
 import {
   handleDeleteNotes,
@@ -100,10 +101,11 @@ export function Timeline({
     if (draggingNote?.committed && draggingNote.currentStart !== undefined) {
       // Verify the DSL has actually been updated with the new position
       const notes = parseNotesFromDSL(dslCode, draggingNote.trackId, tempo);
+      const expectedStart = draggingNote.currentStart; // Extract for type narrowing
 
       // Check if ANY note in the track matches our expected position
       // (Note index may have changed due to re-ordering after DSL update)
-      const matchingNote = notes.find(n => Math.abs(n.start - draggingNote.currentStart) < 0.01);
+      const matchingNote = notes.find(n => Math.abs(n.start - expectedStart) < 0.01);
 
       if (matchingNote) {
         requestAnimationFrame(() => {
@@ -120,10 +122,11 @@ export function Timeline({
     } else if (resizingNote?.committed && resizingNote.currentDuration !== undefined) {
       // Verify the DSL has actually been updated with the new duration
       const notes = parseNotesFromDSL(dslCode, resizingNote.trackId, tempo);
+      const expectedDuration = resizingNote.currentDuration; // Extract for type narrowing
 
       // Check if ANY note in the track matches our expected duration
       // (Note index may have changed due to re-ordering after DSL update)
-      const matchingNote = notes.find(n => Math.abs(n.duration - resizingNote.currentDuration) < 0.01);
+      const matchingNote = notes.find(n => Math.abs(n.duration - expectedDuration) < 0.01);
 
       if (matchingNote) {
         requestAnimationFrame(() => {
@@ -249,16 +252,17 @@ export function Timeline({
     }
 
     if (resizingNote && resizingNote.currentDuration !== undefined) {
-      const deltaBeats = resizingNote.currentDuration - resizingNote.initialDuration;
-
       // Mark as committed to stop further mouse updates
       setResizingNote({
         ...resizingNote,
         committed: true
       });
 
-      // Apply DSL changes (visual state will be cleared by useEffect when dslCode updates)
-      handleNoteResize(deltaBeats * zoom, zoom, resizingNote, dslCode, tempo, snapValue, snapEnabled, onCodeChange);
+      // Apply the already-calculated duration directly (no need to recalculate)
+      const notes = parseNotesFromDSL(dslCode, resizingNote.trackId, tempo);
+      notes[resizingNote.noteIndex].duration = resizingNote.currentDuration;
+      const newCode = updateDSLWithNewNotes(dslCode, resizingNote.trackId, notes, tempo);
+      onCodeChange(newCode);
     } else if (resizingNote) {
       // No resize happened, just clear the state immediately
       setResizingNote(null);
