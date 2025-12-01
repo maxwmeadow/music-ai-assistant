@@ -504,10 +504,10 @@ function generateExecutableCode(CDN_BASE, tempo, trackConfigs, trackSchedules, a
     // Target level: -12dB peak
     const INSTRUMENT_GAINS = {
         // Pianos
-        'piano/steinway_grand': 0,
-        'piano/bechstein_1911_upright': 0,
-        'piano/fender_rhodes': 0,
-        'piano/experience_ny_steinway': 0,
+        'piano/steinway_grand': 23,
+        'piano/bechstein_1911_upright': 29,
+        'piano/fender_rhodes': 13,
+        'piano/experience_ny_steinway': 19,
         // Harpsichords
         'harpsichord/harpsichord_english': -10,
         'harpsichord/harpsichord_flemish': -10,
@@ -519,13 +519,15 @@ function generateExecutableCode(CDN_BASE, tempo, trackConfigs, trackSchedules, a
         'guitar/rjs_guitar_palm_muted_strings': -6,
         'synth/lead/ld_the_stack_guitar_chug': 0,
         'synth/lead/ld_the_stack_guitar': -1,
-        'guitar/rjs_guitar_new_strings': 0,
-        'guitar/rjs_guitar_old_strings': 4,
+        'guitar/rjs_guitar_new_strings': 15,
+        'guitar/rjs_guitar_old_strings': 10,
         // Bass
-        'bass/funky_fingers': -10,
+        'bass/funky_fingers': 4,
         'bass/low_fat_bass': -5,
         'bass/jp8000_sawbass': 2,
         'bass/jp8000_tribass': 2,
+        // Drums
+        'drums/lorenzos_drums': 29,
         // Strings
         'strings/nfo_chamber_strings_longs': 0,
         'strings/nfo_iso_celli_swells': 0,
@@ -663,9 +665,21 @@ function generateExecutableCode(CDN_BASE, tempo, trackConfigs, trackSchedules, a
 
                 if (mapping.type === 'drums') {
                     const drumNoteMap = {
+                        // Standard drum names
                         "kick": "C2", "snare": "D2", "snare_rimshot": "E2",
                         "snare_buzz": "D#2", "hihat_closed": "F#2", "tom": "G2",
-                        "crash": "C#3", "ride": "D#3", "hihat_pedal": "G#2", "hihat_open": "A#2"
+                        "crash": "C#3", "ride": "D#3", "hihat_pedal": "G#2", "hihat_open": "A#2",
+                        "splash": "A2",
+                        // Lorenzo's drums - stereo variants
+                        "kickl": "C2", "kickr": "C2", "kickoverhead": "C2",
+                        "snarel": "D2", "snarer": "D2", "snareoverhead": "D2",
+                        "hihatl": "F#2", "hihatr": "F#2", "hihatoverhead": "F#2",
+                        "hihat_openl": "A#2", "hihat_openr": "A#2", "hihat_openoverhead": "A#2",
+                        "crashl": "C#3", "crashr": "C#3", "crashoverhead": "C#3",
+                        "ridel": "D#3", "rider": "D#3", "rideoverhead": "D#3",
+                        "toml": "G2", "tomr": "G2", "tomoverhead": "G2",
+                        "ridebell": "D#3", "ridebelloverhead": "D#3",
+                        "splashl": "A2", "splashr": "A2", "splashoverhead": "A2"
                     };
                     sampleKey = drumNoteMap[note] || note;
                 }

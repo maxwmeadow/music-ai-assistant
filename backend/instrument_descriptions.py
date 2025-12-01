@@ -11,7 +11,7 @@ INSTRUMENT_DESCRIPTIONS: Dict[str, str] = {
     "drums/lorenzos_drums":
         "Yamaha drum kit - punchy and snappy with individual mic channels (overhead, snare, kick). "
         "Great for rock, metal, and most genres. Raw, authentic sound with 5 velocity layers. "
-        "DSL-supported sounds: kick, snare, hihat_closed, hihat_open, tom, crash, ride. "
+        "DSL-supported sounds: kick, snare, hihat_closed, hihat_open, tom, crash, ride, splash. "
         "MISSING: snare_rimshot, snare_buzz, hihat_pedal (use bedroom_drums for complete kit).",
 
     "drums/bedroom_drums":

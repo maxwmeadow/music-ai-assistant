@@ -1011,7 +1011,7 @@ export default function Home() {
       )}
 
       {/* Top Toolbar */}
-      <div className="flex-none h-16 bg-[#252525] border-b border-gray-800 flex items-center px-4 gap-4 overflow-x-auto">
+      <div className="flex-none h-16 bg-[#252525] border-b border-gray-800 flex items-center px-4 gap-4 overflow-visible">
         {/* Logo */}
         <div className="flex items-center gap-2 mr-4 flex-shrink-0 select-none">
           <img
@@ -1184,7 +1184,7 @@ export default function Home() {
                 Piano Roll
                 <ChevronDown className="w-4 h-4" />
               </button>
-              <div className="absolute top-full left-0 pt-1 hidden group-hover:block z-50">
+              <div className="absolute top-full left-0 pt-1 hidden group-hover:block z-[9999]">
                 <div className="bg-[#2a2a2a] border border-gray-700 rounded-lg shadow-xl min-w-[150px]">
                   {tracks.map(track => (
                     <button
