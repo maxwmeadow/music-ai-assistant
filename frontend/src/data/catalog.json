@@ -1,0 +1,1219 @@
+{
+  "instruments": [
+    {
+      "name": "Steinway Grand",
+      "category": "piano",
+      "path": "piano/steinway_grand",
+      "samples": 48,
+      "size_mb": 50,
+      "noteRange": "F#0 - F7"
+    },
+    {
+      "name": "Bechstein 1911 Upright",
+      "category": "piano",
+      "path": "piano/bechstein_1911_upright",
+      "samples": 37,
+      "size_mb": 40,
+      "noteRange": "A0 - A7"
+    },
+    {
+      "name": "Fender Rhodes",
+      "category": "piano",
+      "path": "piano/fender_rhodes",
+      "samples": 292,
+      "size_mb": 100,
+      "noteRange": "E1 - E7"
+    },
+    {
+      "name": "Experience NY Steinway",
+      "category": "piano",
+      "path": "piano/experience_ny_steinway",
+      "samples": 457,
+      "size_mb": 200,
+      "noteRange": "C0 - C7"
+    },
+    {
+      "name": "Harpsichord, English",
+      "category": "harpsichord",
+      "path": "harpsichord/harpsichord_english",
+      "samples": 110,
+      "size_mb": 26.5,
+      "noteRange": "A#1 - F6"
+    },
+    {
+      "name": "Harpsichord, Flemish",
+      "category": "harpsichord",
+      "path": "harpsichord/harpsichord_flemish",
+      "samples": 108,
+      "size_mb": 42.8,
+      "noteRange": "F1 - C6"
+    },
+    {
+      "name": "Harpsichord, French",
+      "category": "harpsichord",
+      "path": "harpsichord/harpsichord_french",
+      "samples": 58,
+      "size_mb": 35.05085277557373,
+      "noteRange": "C1 - C6"
+    },
+    {
+      "name": "Harpsichord, Italian",
+      "category": "harpsichord",
+      "path": "harpsichord/harpsichord_italian",
+      "samples": 63,
+      "size_mb": 11.73277473449707,
+      "noteRange": "F1 - C6"
+    },
+    {
+      "name": "Harpsichord, Unk",
+      "category": "harpsichord",
+      "path": "harpsichord/harpsichord_unk",
+      "samples": 122,
+      "size_mb": 46.13582992553711,
+      "noteRange": "F1 - F6"
+    },
+    {
+      "name": "RJS Guitar (New Strings)",
+      "category": "guitar",
+      "path": "guitar/rjs_guitar_new_strings",
+      "samples": 68,
+      "size_mb": 154.26,
+      "noteRange": "E2 - E5"
+    },
+    {
+      "name": "RJS Guitar (Old Strings)",
+      "category": "guitar",
+      "path": "guitar/rjs_guitar_old_strings",
+      "samples": 68,
+      "size_mb": 154.26,
+      "noteRange": "E2 - E5"
+    },
+    {
+      "name": "RJS Guitar (Palm Muted Softly)",
+      "category": "guitar",
+      "path": "guitar/rjs_guitar_palm_muted_softly_strings",
+      "samples": 80,
+      "size_mb": 23.87,
+      "noteRange": "E2 - E5"
+    },
+    {
+      "name": "RJS Guitar (Palm Muted)",
+      "category": "guitar",
+      "path": "guitar/rjs_guitar_palm_muted_strings",
+      "samples": 80,
+      "size_mb": 23.87,
+      "noteRange": "E2 - E5"
+    },
+    {
+      "name": "JP8000 Sawtooth Bass",
+      "category": "bass",
+      "path": "bass/jp8000_sawbass",
+      "samples": 37,
+      "size_mb": 129.95,
+      "noteRange": "G2 - G5"
+    },
+    {
+      "name": "JP8000 Triangle Bass",
+      "category": "bass",
+      "path": "bass/jp8000_tribass",
+      "samples": 37,
+      "size_mb": 129.88,
+      "noteRange": "G2 - G5"
+    },
+    {
+      "name": "Funky Fingers Bass",
+      "category": "bass",
+      "path": "bass/funky_fingers",
+      "samples": 21,
+      "size_mb": 15,
+      "noteRange": "B1 - G#5"
+    },
+    {
+      "name": "Low Fat Bass",
+      "category": "bass",
+      "path": "bass/low_fat_bass",
+      "samples": 27,
+      "size_mb": 20,
+      "noteRange": "E2 - G4"
+    },
+    {
+      "name": "NFO Chamber Strings Longs",
+      "category": "strings",
+      "path": "strings/nfo_chamber_strings_longs",
+      "samples": 96,
+      "size_mb": 354.93,
+      "noteRange": "C1 - F7"
+    },
+    {
+      "name": "NFO ISO Brass Swells",
+      "category": "brass",
+      "path": "brass/nfo_iso_brass_swells",
+      "samples": 10,
+      "size_mb": 28.22,
+      "noteRange": "C1 - F#5"
+    },
+    {
+      "name": "Flute + Violin",
+      "category": "winds",
+      "path": "winds/flute_violin",
+      "samples": 8,
+      "size_mb": 15,
+      "noteRange": "D4 - D5"
+    },
+    {
+      "name": "Subtle Clarinet",
+      "category": "winds",
+      "path": "winds/subtle_clarinet",
+      "samples": 12,
+      "size_mb": 25,
+      "noteRange": "D#2 - D#5"
+    },
+    {
+      "name": "Decent Oboe",
+      "category": "winds",
+      "path": "winds/decent_oboe",
+      "samples": 208,
+      "size_mb": 120,
+      "noteRange": "C5 - C#7"
+    },
+    {
+      "name": "Tenor Saxophone",
+      "category": "winds",
+      "path": "winds/tenor_saxophone",
+      "samples": 45,
+      "size_mb": 80,
+      "noteRange": "A3 - A5"
+    },
+    {
+      "name": "NFO ISO Celli Swells",
+      "category": "strings",
+      "path": "strings/nfo_iso_celli_swells",
+      "samples": 13,
+      "size_mb": 41.89,
+      "noteRange": "C1 - C5"
+    },
+    {
+      "name": "NFO ISO Viola Swells",
+      "category": "strings",
+      "path": "strings/nfo_iso_viola_swells",
+      "samples": 10,
+      "size_mb": 28.2,
+      "noteRange": "A2 - C6"
+    },
+    {
+      "name": "NFO ISO Violin Swells",
+      "category": "strings",
+      "path": "strings/nfo_iso_violin_swells",
+      "samples": 10,
+      "size_mb": 28.47,
+      "noteRange": "E3 - G6"
+    },
+    {
+      "name": "BS 2010 House",
+      "category": "synth/bass",
+      "path": "synth/bass/bs_2010_house",
+      "samples": 27,
+      "size_mb": 10.91,
+      "preset_type": "BS",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "BS Another Analog Bass",
+      "category": "synth/bass",
+      "path": "synth/bass/bs_another_analog_bass",
+      "samples": 27,
+      "size_mb": 8.18,
+      "preset_type": "BS",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "BS Corg Bass",
+      "category": "synth/bass",
+      "path": "synth/bass/bs_corg_bass",
+      "samples": 27,
+      "size_mb": 10.91,
+      "preset_type": "BS",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "BS Deep Undertone",
+      "category": "synth/bass",
+      "path": "synth/bass/bs_deep_undertone",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "BS",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "BS Lead Bass Player",
+      "category": "synth/bass",
+      "path": "synth/bass/bs_lead_bass_player",
+      "samples": 27,
+      "size_mb": 10.91,
+      "preset_type": "BS",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "BS Outrun Bass",
+      "category": "synth/bass",
+      "path": "synth/bass/bs_outrun_bass",
+      "samples": 27,
+      "size_mb": 5.46,
+      "preset_type": "BS",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "BS Thick Bass",
+      "category": "synth/bass",
+      "path": "synth/bass/bs_thick_bass",
+      "samples": 27,
+      "size_mb": 21.81,
+      "preset_type": "BS",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "BS ms20 Bass",
+      "category": "synth/bass",
+      "path": "synth/bass/bs_ms20_bass",
+      "samples": 27,
+      "size_mb": 5.46,
+      "preset_type": "BS",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "KB DX Epiano",
+      "category": "synth/keys",
+      "path": "synth/keys/kb_dx_epiano",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "KB",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "KB Interstellar On A Budget",
+      "category": "synth/keys",
+      "path": "synth/keys/kb_interstellar_on_a_budget",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "KB",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "KB Nord String",
+      "category": "synth/keys",
+      "path": "synth/keys/kb_nord_string",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "KB",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "KB Outrun Pluck",
+      "category": "synth/keys",
+      "path": "synth/keys/kb_outrun_pluck",
+      "samples": 27,
+      "size_mb": 21.81,
+      "preset_type": "KB",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "KB Rhode Less Traveled",
+      "category": "synth/keys",
+      "path": "synth/keys/kb_rhode_less_traveled",
+      "samples": 27,
+      "size_mb": 21.81,
+      "preset_type": "KB",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "KB Synthetic Organ",
+      "category": "synth/keys",
+      "path": "synth/keys/kb_synthetic_organ",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "KB",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "KB Synthetic Strings",
+      "category": "synth/keys",
+      "path": "synth/keys/kb_synthetic_strings",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "KB",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "KB The Organ Trail",
+      "category": "synth/keys",
+      "path": "synth/keys/kb_the_organ_trail",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "KB",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "LD CS80-Ish",
+      "category": "synth/lead",
+      "path": "synth/lead/ld_cs80-ish",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "LD",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "LD Classic Saws",
+      "category": "synth/lead",
+      "path": "synth/lead/ld_classic_saws",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "LD",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "LD Crystaline 80s",
+      "category": "synth/lead",
+      "path": "synth/lead/ld_crystaline_80s",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "LD",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "LD FM Hard Lead",
+      "category": "synth/lead",
+      "path": "synth/lead/ld_fm_hard_lead",
+      "samples": 27,
+      "size_mb": 43.61,
+      "preset_type": "LD",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "LD For Each Loop",
+      "category": "synth/lead",
+      "path": "synth/lead/ld_for_each_loop",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "LD",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "LD Forever 80s",
+      "category": "synth/lead",
+      "path": "synth/lead/ld_forever_80s",
+      "samples": 27,
+      "size_mb": 10.91,
+      "preset_type": "LD",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "LD French House",
+      "category": "synth/lead",
+      "path": "synth/lead/ld_french_house",
+      "samples": 27,
+      "size_mb": 43.61,
+      "preset_type": "LD",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "LD Imfamousoty",
+      "category": "synth/lead",
+      "path": "synth/lead/ld_imfamousoty",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "LD",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "LD Jp PatchLead",
+      "category": "synth/lead",
+      "path": "synth/lead/ld_jp_patchlead",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "LD",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "LD Juno Was Is",
+      "category": "synth/lead",
+      "path": "synth/lead/ld_juno_was_is",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "LD",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "LD Legecy Lead",
+      "category": "synth/lead",
+      "path": "synth/lead/ld_legecy_lead",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "LD",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "LD PopTab",
+      "category": "synth/lead",
+      "path": "synth/lead/ld_poptab",
+      "samples": 27,
+      "size_mb": 5.46,
+      "preset_type": "LD",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "LD Strangest Things",
+      "category": "synth/lead",
+      "path": "synth/lead/ld_strangest_things",
+      "samples": 27,
+      "size_mb": 10.91,
+      "preset_type": "LD",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "LD Synthetic Brass",
+      "category": "synth/lead",
+      "path": "synth/lead/ld_synthetic_brass",
+      "samples": 27,
+      "size_mb": 10.91,
+      "preset_type": "LD",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "LD The Nord",
+      "category": "synth/lead",
+      "path": "synth/lead/ld_the_nord",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "LD",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "LD The Stack Guitar Chug",
+      "category": "synth/lead",
+      "path": "synth/lead/ld_the_stack_guitar_chug",
+      "samples": 27,
+      "size_mb": 8.18,
+      "preset_type": "LD",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "LD The Stack Guitar",
+      "category": "synth/lead",
+      "path": "synth/lead/ld_the_stack_guitar",
+      "samples": 27,
+      "size_mb": 43.61,
+      "preset_type": "LD",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "LD Uberheim Legend",
+      "category": "synth/lead",
+      "path": "synth/lead/ld_uberheim_legend",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "LD",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "PD Airlock Leak",
+      "category": "synth/pad",
+      "path": "synth/pad/pd_airlock_leak",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "PD",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "PD Event Horizon",
+      "category": "synth/pad",
+      "path": "synth/pad/pd_event_horizon",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "PD",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "PD Every 80s Movie Ever",
+      "category": "synth/pad",
+      "path": "synth/pad/pd_every_80s_movie_ever",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "PD",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "PD Fatness Pad",
+      "category": "synth/pad",
+      "path": "synth/pad/pd_fatness_pad",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "PD",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "PD On The Horizon",
+      "category": "synth/pad",
+      "path": "synth/pad/pd_on_the_horizon",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "PD",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "PD Orion Belt",
+      "category": "synth/pad",
+      "path": "synth/pad/pd_orion_belt",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "PD",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "PD Soft And Padded",
+      "category": "synth/pad",
+      "path": "synth/pad/pd_soft_and_padded",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "PD",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "PD The First Pad",
+      "category": "synth/pad",
+      "path": "synth/pad/pd_the_first_pad",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "PD",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "PD Timeless Movement",
+      "category": "synth/pad",
+      "path": "synth/pad/pd_timeless_movement",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "PD",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "SQ Rhythmic Seq 1 (100bpm)",
+      "category": "synth/seq",
+      "path": "synth/seq/sq_rhythmic_seq_1_(100bpm)",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "SQ",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "SQ Rhythmic Seq 2 (100bpm)",
+      "category": "synth/seq",
+      "path": "synth/seq/sq_rhythmic_seq_2_(100bpm)",
+      "samples": 27,
+      "size_mb": 87.22,
+      "preset_type": "SQ",
+      "noteRange": "C2 - C6"
+    },
+    {
+      "name": "Lorenzo's Drums V1",
+      "category": "drums",
+      "path": "drums/lorenzos_drums",
+      "samples": 110,
+      "size_mb": 44.39,
+      "noteRange": "Drum Kit"
+    },
+    {
+      "name": "Bedroom Drums",
+      "category": "drums",
+      "path": "drums/bedroom_drums",
+      "samples": 22,
+      "size_mb": 25.33,
+      "noteRange": "Drum Kit"
+    }
+  ],
+  "categories": {
+    "piano": [
+      {
+        "name": "Steinway Grand",
+        "category": "piano",
+        "path": "piano/steinway_grand",
+        "samples": 48,
+        "size_mb": 50
+      },
+      {
+        "name": "Bechstein 1911 Upright",
+        "category": "piano",
+        "path": "piano/bechstein_1911_upright",
+        "samples": 37,
+        "size_mb": 40
+      },
+      {
+        "name": "Fender Rhodes",
+        "category": "piano",
+        "path": "piano/fender_rhodes",
+        "samples": 292,
+        "size_mb": 100
+      },
+      {
+        "name": "Experience NY Steinway",
+        "category": "piano",
+        "path": "piano/experience_ny_steinway",
+        "samples": 457,
+        "size_mb": 200
+      }
+    ],
+    "harpsichord": [
+      {
+        "name": "Harpsichord, English",
+        "category": "harpsichord",
+        "path": "harpsichord/harpsichord_english",
+        "samples": 110,
+        "size_mb": 26.5
+      },
+      {
+        "name": "Harpsichord, Flemish",
+        "category": "harpsichord",
+        "path": "harpsichord/harpsichord_flemish",
+        "samples": 108,
+        "size_mb": 42.8
+      },
+      {
+        "name": "Harpsichord, French",
+        "category": "harpsichord",
+        "path": "harpsichord/harpsichord_french",
+        "samples": 58,
+        "size_mb": 35
+      },
+      {
+        "name": "Harpsichord, Italian",
+        "category": "harpsichord",
+        "path": "harpsichord/harpsichord_italian",
+        "samples": 63,
+        "size_mb": 11.7
+      },
+      {
+        "name": "Harpsichord, Unk",
+        "category": "harpsichord",
+        "path": "harpsichord/harpsichord_unk",
+        "samples": 122,
+        "size_mb": 46.1
+      }
+    ],
+    "guitar": [
+      {
+        "name": "RJS Guitar (New Strings)",
+        "category": "guitar",
+        "path": "guitar/rjs_guitar_new_strings",
+        "samples": 68,
+        "size_mb": 154.26
+      },
+      {
+        "name": "RJS Guitar (Old Strings)",
+        "category": "guitar",
+        "path": "guitar/rjs_guitar_old_strings",
+        "samples": 68,
+        "size_mb": 154.26
+      },
+      {
+        "name": "RJS Guitar (Palm Muted Softly)",
+        "category": "guitar",
+        "path": "guitar/rjs_guitar_palm_muted_softly_strings",
+        "samples": 80,
+        "size_mb": 23.87
+      },
+      {
+        "name": "RJS Guitar (Palm Muted)",
+        "category": "guitar",
+        "path": "guitar/rjs_guitar_palm_muted_strings",
+        "samples": 80,
+        "size_mb": 23.87
+      }
+    ],
+    "bass": [
+      {
+        "name": "JP8000 Sawtooth Bass",
+        "category": "bass",
+        "path": "bass/jp8000_sawbass",
+        "samples": 37,
+        "size_mb": 129.95
+      },
+      {
+        "name": "JP8000 Triangle Bass",
+        "category": "bass",
+        "path": "bass/jp8000_tribass",
+        "samples": 37,
+        "size_mb": 129.88
+      },
+      {
+        "name": "Funky Fingers Bass",
+        "category": "bass",
+        "path": "bass/funky_fingers",
+        "samples": 21,
+        "size_mb": 15
+      },
+      {
+        "name": "Low Fat Bass",
+        "category": "bass",
+        "path": "bass/low_fat_bass",
+        "samples": 27,
+        "size_mb": 20
+      }
+    ],
+    "strings": [
+      {
+        "name": "NFO Chamber Strings Longs",
+        "category": "strings",
+        "path": "strings/nfo_chamber_strings_longs",
+        "samples": 96,
+        "size_mb": 354.93
+      },
+      {
+        "name": "NFO ISO Celli Swells",
+        "category": "strings",
+        "path": "strings/nfo_iso_celli_swells",
+        "samples": 13,
+        "size_mb": 41.89
+      },
+      {
+        "name": "NFO ISO Viola Swells",
+        "category": "strings",
+        "path": "strings/nfo_iso_viola_swells",
+        "samples": 10,
+        "size_mb": 28.2
+      },
+      {
+        "name": "NFO ISO Violin Swells",
+        "category": "strings",
+        "path": "strings/nfo_iso_violin_swells",
+        "samples": 10,
+        "size_mb": 28.47
+      }
+    ],
+    "brass": [
+      {
+        "name": "NFO ISO Brass Swells",
+        "category": "brass",
+        "path": "brass/nfo_iso_brass_swells",
+        "samples": 10,
+        "size_mb": 28.22
+      }
+    ],
+    "winds": [
+      {
+        "name": "Flute + Violin",
+        "category": "winds",
+        "path": "winds/flute_violin",
+        "samples": 8,
+        "size_mb": 15
+      },
+      {
+        "name": "Subtle Clarinet",
+        "category": "winds",
+        "path": "winds/subtle_clarinet",
+        "samples": 12,
+        "size_mb": 25
+      },
+      {
+        "name": "Decent Oboe",
+        "category": "winds",
+        "path": "winds/decent_oboe",
+        "samples": 208,
+        "size_mb": 120
+      },
+      {
+        "name": "Tenor Saxophone",
+        "category": "winds",
+        "path": "winds/tenor_saxophone",
+        "samples": 45,
+        "size_mb": 80
+      }
+    ],
+    "synth/bass": [
+      {
+        "name": "BS 2010 House",
+        "category": "synth/bass",
+        "path": "synth/bass/bs_2010_house",
+        "samples": 27,
+        "size_mb": 10.91,
+        "preset_type": "BS"
+      },
+      {
+        "name": "BS Another Analog Bass",
+        "category": "synth/bass",
+        "path": "synth/bass/bs_another_analog_bass",
+        "samples": 27,
+        "size_mb": 8.18,
+        "preset_type": "BS"
+      },
+      {
+        "name": "BS Corg Bass",
+        "category": "synth/bass",
+        "path": "synth/bass/bs_corg_bass",
+        "samples": 27,
+        "size_mb": 10.91,
+        "preset_type": "BS"
+      },
+      {
+        "name": "BS Deep Undertone",
+        "category": "synth/bass",
+        "path": "synth/bass/bs_deep_undertone",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "BS"
+      },
+      {
+        "name": "BS Lead Bass Player",
+        "category": "synth/bass",
+        "path": "synth/bass/bs_lead_bass_player",
+        "samples": 27,
+        "size_mb": 10.91,
+        "preset_type": "BS"
+      },
+      {
+        "name": "BS Outrun Bass",
+        "category": "synth/bass",
+        "path": "synth/bass/bs_outrun_bass",
+        "samples": 27,
+        "size_mb": 5.46,
+        "preset_type": "BS"
+      },
+      {
+        "name": "BS Thick Bass",
+        "category": "synth/bass",
+        "path": "synth/bass/bs_thick_bass",
+        "samples": 27,
+        "size_mb": 21.81,
+        "preset_type": "BS"
+      },
+      {
+        "name": "BS ms20 Bass",
+        "category": "synth/bass",
+        "path": "synth/bass/bs_ms20_bass",
+        "samples": 27,
+        "size_mb": 5.46,
+        "preset_type": "BS"
+      }
+    ],
+    "synth/keys": [
+      {
+        "name": "KB DX Epiano",
+        "category": "synth/keys",
+        "path": "synth/keys/kb_dx_epiano",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "KB"
+      },
+      {
+        "name": "KB Interstellar On A Budget",
+        "category": "synth/keys",
+        "path": "synth/keys/kb_interstellar_on_a_budget",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "KB"
+      },
+      {
+        "name": "KB Nord String",
+        "category": "synth/keys",
+        "path": "synth/keys/kb_nord_string",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "KB"
+      },
+      {
+        "name": "KB Outrun Pluck",
+        "category": "synth/keys",
+        "path": "synth/keys/kb_outrun_pluck",
+        "samples": 27,
+        "size_mb": 21.81,
+        "preset_type": "KB"
+      },
+      {
+        "name": "KB Rhode Less Traveled",
+        "category": "synth/keys",
+        "path": "synth/keys/kb_rhode_less_traveled",
+        "samples": 27,
+        "size_mb": 21.81,
+        "preset_type": "KB"
+      },
+      {
+        "name": "KB Synthetic Organ",
+        "category": "synth/keys",
+        "path": "synth/keys/kb_synthetic_organ",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "KB"
+      },
+      {
+        "name": "KB Synthetic Strings",
+        "category": "synth/keys",
+        "path": "synth/keys/kb_synthetic_strings",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "KB"
+      },
+      {
+        "name": "KB The Organ Trail",
+        "category": "synth/keys",
+        "path": "synth/keys/kb_the_organ_trail",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "KB"
+      }
+    ],
+    "synth/lead": [
+      {
+        "name": "LD CS80-Ish",
+        "category": "synth/lead",
+        "path": "synth/lead/ld_cs80-ish",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "LD"
+      },
+      {
+        "name": "LD Classic Saws",
+        "category": "synth/lead",
+        "path": "synth/lead/ld_classic_saws",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "LD"
+      },
+      {
+        "name": "LD Crystaline 80s",
+        "category": "synth/lead",
+        "path": "synth/lead/ld_crystaline_80s",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "LD"
+      },
+      {
+        "name": "LD FM Hard Lead",
+        "category": "synth/lead",
+        "path": "synth/lead/ld_fm_hard_lead",
+        "samples": 27,
+        "size_mb": 43.61,
+        "preset_type": "LD"
+      },
+      {
+        "name": "LD For Each Loop",
+        "category": "synth/lead",
+        "path": "synth/lead/ld_for_each_loop",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "LD"
+      },
+      {
+        "name": "LD Forever 80s",
+        "category": "synth/lead",
+        "path": "synth/lead/ld_forever_80s",
+        "samples": 27,
+        "size_mb": 10.91,
+        "preset_type": "LD"
+      },
+      {
+        "name": "LD French House",
+        "category": "synth/lead",
+        "path": "synth/lead/ld_french_house",
+        "samples": 27,
+        "size_mb": 43.61,
+        "preset_type": "LD"
+      },
+      {
+        "name": "LD Imfamousoty",
+        "category": "synth/lead",
+        "path": "synth/lead/ld_imfamousoty",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "LD"
+      },
+      {
+        "name": "LD Jp PatchLead",
+        "category": "synth/lead",
+        "path": "synth/lead/ld_jp_patchlead",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "LD"
+      },
+      {
+        "name": "LD Juno Was Is",
+        "category": "synth/lead",
+        "path": "synth/lead/ld_juno_was_is",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "LD"
+      },
+      {
+        "name": "LD Legecy Lead",
+        "category": "synth/lead",
+        "path": "synth/lead/ld_legecy_lead",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "LD"
+      },
+      {
+        "name": "LD PopTab",
+        "category": "synth/lead",
+        "path": "synth/lead/ld_poptab",
+        "samples": 27,
+        "size_mb": 5.46,
+        "preset_type": "LD"
+      },
+      {
+        "name": "LD Strangest Things",
+        "category": "synth/lead",
+        "path": "synth/lead/ld_strangest_things",
+        "samples": 27,
+        "size_mb": 10.91,
+        "preset_type": "LD"
+      },
+      {
+        "name": "LD Synthetic Brass",
+        "category": "synth/lead",
+        "path": "synth/lead/ld_synthetic_brass",
+        "samples": 27,
+        "size_mb": 10.91,
+        "preset_type": "LD"
+      },
+      {
+        "name": "LD The Nord",
+        "category": "synth/lead",
+        "path": "synth/lead/ld_the_nord",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "LD"
+      },
+      {
+        "name": "LD The Stack Guitar Chug",
+        "category": "synth/lead",
+        "path": "synth/lead/ld_the_stack_guitar_chug",
+        "samples": 27,
+        "size_mb": 8.18,
+        "preset_type": "LD"
+      },
+      {
+        "name": "LD The Stack Guitar",
+        "category": "synth/lead",
+        "path": "synth/lead/ld_the_stack_guitar",
+        "samples": 27,
+        "size_mb": 43.61,
+        "preset_type": "LD"
+      },
+      {
+        "name": "LD Uberheim Legend",
+        "category": "synth/lead",
+        "path": "synth/lead/ld_uberheim_legend",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "LD"
+      }
+    ],
+    "synth/pad": [
+      {
+        "name": "PD Airlock Leak",
+        "category": "synth/pad",
+        "path": "synth/pad/pd_airlock_leak",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "PD"
+      },
+      {
+        "name": "PD Event Horizon",
+        "category": "synth/pad",
+        "path": "synth/pad/pd_event_horizon",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "PD"
+      },
+      {
+        "name": "PD Every 80s Movie Ever",
+        "category": "synth/pad",
+        "path": "synth/pad/pd_every_80s_movie_ever",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "PD"
+      },
+      {
+        "name": "PD Fatness Pad",
+        "category": "synth/pad",
+        "path": "synth/pad/pd_fatness_pad",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "PD"
+      },
+      {
+        "name": "PD On The Horizon",
+        "category": "synth/pad",
+        "path": "synth/pad/pd_on_the_horizon",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "PD"
+      },
+      {
+        "name": "PD Orion Belt",
+        "category": "synth/pad",
+        "path": "synth/pad/pd_orion_belt",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "PD"
+      },
+      {
+        "name": "PD Soft And Padded",
+        "category": "synth/pad",
+        "path": "synth/pad/pd_soft_and_padded",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "PD"
+      },
+      {
+        "name": "PD The First Pad",
+        "category": "synth/pad",
+        "path": "synth/pad/pd_the_first_pad",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "PD"
+      },
+      {
+        "name": "PD Timeless Movement",
+        "category": "synth/pad",
+        "path": "synth/pad/pd_timeless_movement",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "PD"
+      }
+    ],
+    "synth/seq": [
+      {
+        "name": "SQ Rhythmic Seq 1 (100bpm)",
+        "category": "synth/seq",
+        "path": "synth/seq/sq_rhythmic_seq_1_(100bpm)",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "SQ"
+      },
+      {
+        "name": "SQ Rhythmic Seq 2 (100bpm)",
+        "category": "synth/seq",
+        "path": "synth/seq/sq_rhythmic_seq_2_(100bpm)",
+        "samples": 27,
+        "size_mb": 87.22,
+        "preset_type": "SQ"
+      }
+    ],
+    "drums": [
+      {
+        "name": "Lorenzo's Drums V1",
+        "category": "drums",
+        "path": "drums/lorenzos_drums",
+        "samples": 110,
+        "size_mb": 44.39
+      },
+      {
+        "name": "Bedroom Drums",
+        "category": "drums",
+        "path": "drums/bedroom_drums",
+        "samples": 22,
+        "size_mb": 25.33
+      }
+    ]
+  },
+  "total_size_mb": 4788.120145606992,
+  "total_samples": 3978
+}

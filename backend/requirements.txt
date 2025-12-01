@@ -1,0 +1,29 @@
+fastapi
+uvicorn
+pydantic
+requests
+python-dotenv
+
+# LLM integration for AI arranger
+anthropic>=0.40.0
+
+# Audio processing dependencies
+librosa>=0.10.0
+numpy>=1.24.0
+soundfile>=0.12.0
+scipy>=1.11.0
+audioread>=3.0.0
+
+# File handling
+python-multipart
+
+# Deep Learning (Hum2Melody model requirements)
+# CPU-only versions for faster Docker builds (no CUDA needed in container)
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.0.0
+torchaudio>=2.0.0
+tqdm>=4.65.0
+
+# Deep Learning (Beatbox2Drums model requirements)
+# CPU-only version for faster builds
+tensorflow-cpu>=2.12.0

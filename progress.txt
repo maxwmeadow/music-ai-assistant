@@ -1,0 +1,59 @@
+=================
+Team Progress Log
+=================
+
+
+Format:
+
+[Name] - [Date] (Append each update on top of file)
+- DONE: ...
+- WORKING ON: ...
+- BLOCKED: ...
+
+------------------------------------------------------
+Carson - 10/6
+-DONE: Implemented CRNN model architecture (6.4M parameters, 3 CNN + 2 LSTM layers), PyTorch dataset with mel spectrogram preprocessing and validation, complete inference pipeline with frame-to-note post-processing, full integration tests (all passing).
+-WORKING ON: Awaiting labeled training data. Will update model_server to use real predictor instead of mock and will have to make sure the predictor is getting raw audio bytes
+-BLOCKED: Cannot test backend integration without trained model checkpoint.
+
+Ayaan - 10/5
+-DONE: Created train_hum2melodyfile, complete with imports, parameters (change accordingly), dataset, model and training loop.
+-WORKING ON: Saving training history to JSON
+-BLOCKED: Linking to Hum2melody model (must be pytorch nm model)
+
+Ayaan - 10/4
+-DONE: Implemented audio recording setup with permission for microphone access, waveform visualization, audio processing pipeline, new panel for recording audio on the left side, general UI fixes improving clarity.
+-WORKING ON: Recording and playback controls with visual feedback, integration to send code to backend.
+-BLOCKED: None
+
+
+Carson - 10/2
+- DONE: Implemented audio processing endpoints (/hum2melody, /beatbox2drums, /arrange, /feedback, /stats), audio preprocessing with librosa, model serving architecture, SQLite training data collection, automated testing, comprehensive documentation.
+- WORKING ON: Frontend integration, collecting training samples.
+- BLOCKED: None
+
+Max - 9/27
+- DONE: Fixed backend-runner communication issues via environment variable configuration. Implemented frontend audio execution with Tone.js dynamic loading and playback controls. Created comprehensive startup automation with PowerShell script for one-command deployment. Created a root level README for steps to use our current demo deployment
+- WORKING ON: Creating week 2 tasks
+- BLOCKED: None
+
+Ayaan - 9/25
+- DONE:- Frontend with two panel layout, assistant on left and monaco code editor on right
+- WORKING ON:- Minor fixes, changing up colors for better readability, small spinner.
+- BLOCKED:- None
+
+Carson - 9/23
+- DONE: Completed FastAPI backend scaffold with health/test/run endpoints, added IR+DSL schema, runner client, stub fallback, Dockerfile and docker-compose setup with live reload, validated integration with Node runner (full IR→DSL→Tone.js pipeline).
+- WORKING ON: Preparing for frontend integration (CORS, consistent API contract).
+- BLOCKED: Compiler integration (waiting on compiler implementation).
+
+Max - 9/21
+- DONE: Built complete music runner with JSON->DSL->Tone.js pipeline, REST API on port 5001,
+        Docker containerization, custom music language parser/generator.
+- WORKING ON: Team integration for week 1 demo
+- BLOCKED: None
+
+Max - 9/17
+- DONE: Pushed initial repo structure
+- WORKING ON: Setting up week 1 assignments
+- BLOCKED: None

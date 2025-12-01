@@ -1,0 +1,4 @@
+backend/beatbox2drums/checkpoints/drum_classifier/*.pth filter=lfs diff=lfs merge=lfs -text
+backend/beatbox2drums/checkpoints/drum_classifier/*.npz filter=lfs diff=lfs merge=lfs -text
+backend/beatbox2drums/checkpoints/onset_detector/*.h5 filter=lfs diff=lfs merge=lfs -text
+backend/hum2melody/checkpoints/combined_hum2melody_full.pth filter=lfs diff=lfs merge=lfs -text
