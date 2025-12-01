@@ -473,7 +473,7 @@ export function updateDSLWithNewNotes(
     if (trimmedLine.match(/^loop\s*\(/)) {
       // Find the matching closing brace for this loop
       let loopBraceCount = 0;
-      let loopStartIndex = i;
+      const loopStartIndex = i;
       let loopEndIndex = i;
 
       // Count braces to find the loop's end

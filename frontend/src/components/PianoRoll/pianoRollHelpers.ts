@@ -106,7 +106,7 @@ export function getGridSubdivision(zoom: number): {
  */
 export function expandLoops(dslCode: string): string {
   let expandedCode = dslCode;
-  let maxIterations = 100;
+  const maxIterations = 100;
   let iteration = 0;
 
   const loopPattern = /loop\s*\(\s*([\d.]+)\s*,\s*([\d.]+)\s*\)\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g;
@@ -452,7 +452,7 @@ export function updateDSLWithNewNotes(
 
       // Find the matching closing brace for this loop
       let loopBraceCount = 0;
-      let loopStartIndex = i;
+      const loopStartIndex = i;
       let loopEndIndex = i;
 
       // Count braces to find the loop's end

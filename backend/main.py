@@ -28,6 +28,15 @@ USING_DOCKER=True
 
 settings = load_settings()
 
+# Download models from R2 if missing (for Railway deployment)
+print("Checking for model checkpoints...")
+try:
+    from .download_models import check_and_download_models
+    check_and_download_models()
+except Exception as e:
+    print(f"⚠️ Model download check failed: {e}")
+    print("Will attempt to use local models or fall back to mock predictions")
+
 # Initialize components
 app = FastAPI(title="Music Backend", version="0.2.0")
 audio_processor = AudioProcessor(target_sr=16000)

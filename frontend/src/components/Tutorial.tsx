@@ -110,7 +110,7 @@ export function Tutorial({
     const tooltipWidth = 448; // max-w-md = 28rem = 448px
     const tooltipHeight = 250; // Approximate height
 
-    let style: React.CSSProperties = {
+    const style: React.CSSProperties = {
       position: "fixed",
       zIndex: 10003,
     };

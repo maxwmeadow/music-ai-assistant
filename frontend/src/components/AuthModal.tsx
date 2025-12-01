@@ -75,7 +75,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                         </div>
                         <h2 className="text-xl font-bold text-white mb-2">Check your email</h2>
                         <p className="text-gray-400 text-sm mb-6">
-                            We've sent a confirmation link to <span className="text-white font-medium">{email}</span>.
+                            We&apos;ve sent a confirmation link to <span className="text-white font-medium">{email}</span>.
                             Please click the link to verify your account.
                         </p>
                         <button

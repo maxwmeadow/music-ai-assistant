@@ -352,7 +352,7 @@ export default function ArrangerModal({
                 {customRequest && (
                   <div className="mt-3 pt-3 border-t border-gray-700/50">
                     <p className="text-xs font-medium text-gray-400 mb-1">Additional:</p>
-                    <p className="text-sm text-gray-300 italic">"{customRequest}"</p>
+                    <p className="text-sm text-gray-300 italic">&quot;{customRequest}&quot;</p>
                   </div>
                 )}
               </div>

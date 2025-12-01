@@ -2,10 +2,12 @@ FROM python:3.11-slim
 
 WORKDIR /app/backend
 
-# Install system dependencies (curl for healthcheck, ffmpeg for audio)
+# Install system dependencies (curl for healthcheck, ffmpeg for audio, git-lfs for model files)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ffmpeg \
+    git \
+    git-lfs \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies (in a separate layer for better caching)
