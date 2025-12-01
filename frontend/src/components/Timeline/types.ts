@@ -1,4 +1,5 @@
 export interface TimelineNote {
+  id?: string; // Unique ID for tracking notes through edits (not stored in DSL)
   pitch: number;
   start: number;
   duration: number;

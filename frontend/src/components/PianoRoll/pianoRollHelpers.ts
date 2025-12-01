@@ -183,13 +183,73 @@ export function expandLoops(dslCode: string): string {
 }
 
 /**
+ * Extract a single track with proper brace matching
+ */
+function extractTrackWithBraceMatching(dslCode: string, trackId: string): {
+  fullMatch: string;
+  opening: string;
+  trackContent: string;
+  closing: string;
+  startIndex: number;
+  endIndex: number;
+} | null {
+  const trackPattern = new RegExp(`track\\("${trackId}"\\)\\s*\\{`);
+  const match = trackPattern.exec(dslCode);
+  if (!match) return null;
+
+  const trackStart = match.index;
+  const contentStart = match.index + match[0].length;
+
+  // Find the matching closing brace using brace counting
+  let braceCount = 1;
+  let pos = contentStart;
+
+  while (pos < dslCode.length && braceCount > 0) {
+    if (dslCode[pos] === '{') braceCount++;
+    if (dslCode[pos] === '}') braceCount--;
+    pos++;
+  }
+
+  if (braceCount !== 0) {
+    console.error(`[updateDSL] Unmatched braces for track "${trackId}"`);
+    return null;
+  }
+
+  const trackEnd = pos;
+  const fullMatch = dslCode.substring(trackStart, trackEnd);
+  const opening = match[0]; // "track("id") {"
+  const closing = '}';
+  const trackContent = dslCode.substring(contentStart, trackEnd - 1);
+
+  console.log(`[updateDSL] Extracted track "${trackId}":`, {
+    fullMatchLength: fullMatch.length,
+    trackContentLength: trackContent.length,
+    startIndex: trackStart,
+    endIndex: trackEnd,
+    trackContentPreview: trackContent.substring(0, 200) + '...'
+  });
+
+  return {
+    fullMatch,
+    opening,
+    trackContent,
+    closing,
+    startIndex: trackStart,
+    endIndex: trackEnd
+  };
+}
+
+/**
  * Parse notes from DSL track content
  */
 export function parseNotesFromDSL(dslCode: string, trackId: string, tempo: number): PianoRollNote[] {
-  const trackMatch = dslCode.match(new RegExp(`track\\("${trackId}"\\)\\s*\\{([\\s\\S]*?)\\n\\}`, 'm'));
-  if (!trackMatch) return [];
+  const extracted = extractTrackWithBraceMatching(dslCode, trackId);
+  if (!extracted) {
+    console.warn(`[parseNotes] Could not find track "${trackId}"`);
+    return [];
+  }
 
-  const trackContent = trackMatch[1];
+  const trackContent = extracted.trackContent;
   const notes: PianoRollNote[] = [];
 
   // Parse directly-written notes (outside loops) - these are editable
@@ -291,13 +351,24 @@ export function updateDSLWithNewNotes(
   tempo: number,
   onCodeChange: (newCode: string) => void
 ): void {
-  const trackMatch = dslCode.match(new RegExp(`(track\\("${trackId}"\\)\\s*\\{)([\\s\\S]*?)(\\n\\})`, 'm'));
-  if (!trackMatch) return;
+  console.log(`[updateDSL] Starting update for track "${trackId}"`, {
+    totalNotes: updatedNotes.length,
+    directNotes: updatedNotes.filter(n => !n.isFromLoop).length,
+    loopNotes: updatedNotes.filter(n => n.isFromLoop).length
+  });
 
-  const [fullMatch, opening, trackContent, closing] = trackMatch;
+  const extracted = extractTrackWithBraceMatching(dslCode, trackId);
+  if (!extracted) {
+    console.error(`[updateDSL] Could not extract track "${trackId}"`);
+    return;
+  }
+
+  const { fullMatch, opening, trackContent, closing } = extracted;
 
   // Filter out loop-generated notes - only update directly-written notes
   const directNotes = updatedNotes.filter(note => !note.isFromLoop);
+
+  console.log(`[updateDSL] Processing ${directNotes.length} direct notes`);
 
   // Group updated notes by time for chord detection
   const notesByTime = new Map<string, PianoRollNote[]>();
@@ -309,6 +380,8 @@ export function updateDSLWithNewNotes(
     notesByTime.get(timeKey)!.push(note);
   });
 
+  console.log(`[updateDSL] Grouped into ${notesByTime.size} time positions`);
+
   // Build a map of what each note/chord should look like
   const updatedNoteLines = new Map<string, string>();
   Array.from(notesByTime.entries()).forEach(([timeStr, notes]) => {
@@ -319,17 +392,17 @@ export function updateDSLWithNewNotes(
       const note = notes[0];
       const noteName = pitchToNote(note.pitch);
       const durationSeconds = beatsToSeconds(note.duration, tempo);
-      updatedNoteLines.set(timeKey,
-        `note("${noteName}", ${timeSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${note.velocity.toFixed(2)})`
-      );
+      const line = `note("${noteName}", ${timeSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${note.velocity.toFixed(2)})`;
+      updatedNoteLines.set(timeKey, line);
+      console.log(`[updateDSL] Note at ${timeKey}s: ${line}`);
     } else {
       const noteNames = notes.map(n => `"${pitchToNote(n.pitch)}"`).join(', ');
       const avgDuration = notes.reduce((sum, n) => sum + n.duration, 0) / notes.length;
       const avgVelocity = notes.reduce((sum, n) => sum + n.velocity, 0) / notes.length;
       const durationSeconds = beatsToSeconds(avgDuration, tempo);
-      updatedNoteLines.set(timeKey,
-        `chord([${noteNames}], ${timeSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${avgVelocity.toFixed(2)})`
-      );
+      const line = `chord([${noteNames}], ${timeSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${avgVelocity.toFixed(2)})`;
+      updatedNoteLines.set(timeKey, line);
+      console.log(`[updateDSL] Chord at ${timeKey}s: ${line}`);
     }
   });
 
@@ -337,6 +410,24 @@ export function updateDSLWithNewNotes(
   const lines = trackContent.split('\n');
   const newLines: string[] = [];
   const processedTimes = new Set<string>();
+
+  console.log(`[updateDSL] Processing ${lines.length} lines from track content`);
+  console.log(`[updateDSL] First line: "${lines[0]}" (length: ${lines[0].length}, trimmed: "${lines[0].trim()}")`);
+  console.log(`[updateDSL] Last line: "${lines[lines.length - 1]}" (length: ${lines[lines.length - 1].length}, trimmed: "${lines[lines.length - 1].trim()}")`);
+
+  // Detect common indentation from existing note/chord lines
+  let detectedIndent = '    '; // Default to 4 spaces
+  for (const line of lines) {
+    const noteChordMatch = line.trim().match(/^(note|chord)\(/);
+    if (noteChordMatch) {
+      const indentMatch = line.match(/^(\s*)/);
+      if (indentMatch && indentMatch[1]) {
+        detectedIndent = indentMatch[1];
+        console.log(`[updateDSL] Detected indentation: ${detectedIndent.length} chars (from existing note/chord line)`);
+        break;
+      }
+    }
+  }
 
   // Helper to find matching time with tolerance
   const findMatchingTime = (targetTime: number): string | null => {
@@ -350,40 +441,102 @@ export function updateDSLWithNewNotes(
     return null;
   };
 
-  for (const line of lines) {
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
     const trimmedLine = line.trim();
 
-    // Check if this is a note or chord line
+    // Check if this line starts a loop block
+    if (trimmedLine.match(/^loop\s*\(/)) {
+      console.log(`[updateDSL] Line ${i}: Found loop start, preserving entire loop block`);
+
+      // Find the matching closing brace for this loop
+      let loopBraceCount = 0;
+      let loopStartIndex = i;
+      let loopEndIndex = i;
+
+      // Count braces to find the loop's end
+      for (let j = i; j < lines.length; j++) {
+        const currentLine = lines[j];
+        // Count opening braces
+        for (let k = 0; k < currentLine.length; k++) {
+          if (currentLine[k] === '{') loopBraceCount++;
+          if (currentLine[k] === '}') loopBraceCount--;
+        }
+
+        if (loopBraceCount === 0 && j > i) {
+          loopEndIndex = j;
+          break;
+        }
+      }
+
+      // Preserve all lines from loop start to loop end (inclusive)
+      for (let j = loopStartIndex; j <= loopEndIndex; j++) {
+        console.log(`[updateDSL] Line ${j}: Preserving loop content line`);
+        newLines.push(lines[j]);
+      }
+
+      // Skip to the line after the loop
+      i = loopEndIndex + 1;
+      continue;
+    }
+
+    // Check if this is a note or chord line (outside of loops)
     // Match either: note("C4", 0.0, ...) or chord(["C4", "E4"], 0.0, ...)
     const noteMatch = trimmedLine.match(/^(note|chord)\((?:"[^"]+"|(?:\[[^\]]+\])),\s*([0-9.]+)/);
     if (noteMatch) {
       const timeSeconds = parseFloat(noteMatch[2]);
+
+      // Detect indentation from original line
+      const indentMatch = line.match(/^(\s*)/);
+      const indent = indentMatch ? indentMatch[1] : '    '; // Default to 4 spaces
 
       // Find matching time key with tolerance
       const matchingKey = findMatchingTime(timeSeconds);
 
       // Check if we have an updated version of this note/chord
       if (matchingKey && !processedTimes.has(matchingKey)) {
-        newLines.push(`  ${updatedNoteLines.get(matchingKey)}`);
+        // Replace with updated version
+        const updatedLine = `${indent}${updatedNoteLines.get(matchingKey)}`;
+        console.log(`[updateDSL] Line ${i}: Replacing note/chord at ${timeSeconds}s with updated version (indent: ${indent.length} chars)`);
+        newLines.push(updatedLine);
         processedTimes.add(matchingKey);
       } else if (!matchingKey) {
-        // Keep original line if no update found
-        newLines.push(line);
+        // No update found - this note/chord was deleted, skip it
+        console.log(`[updateDSL] Line ${i}: Deleting note/chord at ${timeSeconds}s (no notes at this time in updated list)`);
+      } else {
+        // Already processed - skip duplicate
+        console.log(`[updateDSL] Line ${i}: Skipping duplicate note/chord at ${timeSeconds}s (already processed)`);
       }
-      // Skip if already processed (duplicate at same time)
     } else {
-      // Keep all non-note lines (comments, blank lines, loops, instrument)
+      // Keep all non-note lines (comments, blank lines, instrument)
+      if (trimmedLine.includes('instrument(')) {
+        console.log(`[updateDSL] Line ${i}: Preserving instrument: ${trimmedLine}`);
+      } else if (trimmedLine.startsWith('//')) {
+        console.log(`[updateDSL] Line ${i}: Preserving comment: ${trimmedLine}`);
+      } else if (trimmedLine === '' || trimmedLine === '}') {
+        console.log(`[updateDSL] Line ${i}: Preserving whitespace/brace`);
+      } else {
+        console.log(`[updateDSL] Line ${i}: Preserving other line: ${trimmedLine.substring(0, 50)}...`);
+      }
       newLines.push(line);
     }
+
+    i++;
   }
+
+  console.log(`[updateDSL] Processed ${processedTimes.size} updated notes/chords`);
 
   // Add any new notes that weren't in the original
   const newNotes: string[] = [];
   for (const [timeKey, noteLine] of updatedNoteLines.entries()) {
     if (!processedTimes.has(timeKey)) {
-      newNotes.push(`  ${noteLine}`);
+      console.log(`[updateDSL] Adding new note/chord at ${timeKey}s: ${noteLine}`);
+      newNotes.push(`${detectedIndent}${noteLine}`);
     }
   }
+
+  console.log(`[updateDSL] Adding ${newNotes.length} new notes/chords`);
 
   // Insert new notes at the end before closing brace, maintaining structure
   if (newNotes.length > 0) {
@@ -392,11 +545,46 @@ export function updateDSLWithNewNotes(
     while (insertIndex >= 0 && newLines[insertIndex].trim() === '') {
       insertIndex--;
     }
+    console.log(`[updateDSL] Inserting new notes at index ${insertIndex + 1}`);
     newLines.splice(insertIndex + 1, 0, ...newNotes);
   }
 
+  console.log(`[updateDSL] newLines array (before trim):`, {
+    firstLine: `"${newLines[0]}"`,
+    lastLine: `"${newLines[newLines.length - 1]}"`,
+    totalLines: newLines.length
+  });
+
+  // Remove leading empty lines
+  while (newLines.length > 0 && newLines[0].trim() === '') {
+    console.log(`[updateDSL] Removing leading empty line`);
+    newLines.shift();
+  }
+
+  // Remove trailing empty lines
+  while (newLines.length > 0 && newLines[newLines.length - 1].trim() === '') {
+    console.log(`[updateDSL] Removing trailing empty line`);
+    newLines.pop();
+  }
+
+  console.log(`[updateDSL] newLines array (after trim):`, {
+    firstLine: `"${newLines[0]}"`,
+    lastLine: `"${newLines[newLines.length - 1]}"`,
+    totalLines: newLines.length
+  });
+
   const newTrackContent = `${opening}\n${newLines.join('\n')}\n${closing}`;
   const newDSL = dslCode.replace(fullMatch, newTrackContent);
+
+  console.log(`[updateDSL] Rebuilt track:`, {
+    originalLines: lines.length,
+    newLines: newLines.length,
+    newTrackContentLength: newTrackContent.length,
+    newTrackContentPreview: newTrackContent.substring(0, 300) + '...',
+    newTrackContentFirst100: newTrackContent.substring(0, 100).replace(/\n/g, '\\n')
+  });
+
+  console.log(`[updateDSL] Update complete for track "${trackId}"`);
   onCodeChange(newDSL);
 }
 

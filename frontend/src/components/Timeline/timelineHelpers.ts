@@ -253,6 +253,8 @@ export function parseNotesFromDSL(dslCode: string, trackId: string, tempo: numbe
   const notePattern = /note\("([^"]+)",\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g;
   const noteMatches = [...contentWithoutLoops.matchAll(notePattern)];
 
+  let noteIdCounter = 0; // Counter for generating unique IDs
+
   for (const match of noteMatches) {
     const [, noteName, start, duration, velocity] = match;
     const startVal = parseFloat(start);
@@ -261,6 +263,7 @@ export function parseNotesFromDSL(dslCode: string, trackId: string, tempo: numbe
 
     const pitch = noteNameToPitch(noteName);  // Use noteNameToPitch to handle drum names
     notes.push({
+      id: `${trackId}-note-${noteIdCounter++}`,
       pitch,
       start: secondsToBeats(startVal, tempo),
       duration: secondsToBeats(durationVal, tempo),
@@ -282,6 +285,7 @@ export function parseNotesFromDSL(dslCode: string, trackId: string, tempo: numbe
     const rootPitch = noteNameToPitch(chordNotes[0]);  // Use noteNameToPitch to handle drum names
     const allPitches = chordNotes.map(n => noteNameToPitch(n));
     notes.push({
+      id: `${trackId}-note-${noteIdCounter++}`,
       pitch: rootPitch,
       start: secondsToBeats(startVal, tempo),
       duration: secondsToBeats(durationVal, tempo),
@@ -355,132 +359,226 @@ export function parseNotesFromDSL(dslCode: string, trackId: string, tempo: numbe
  * Update DSL code with new notes for a track
  * IMPORTANT: Preserves loop structures - only updates directly-written notes
  */
+/**
+ * Extract a single track with proper brace matching
+ */
+function extractTrackWithBraceMatching(dslCode: string, trackId: string): {
+  fullMatch: string;
+  opening: string;
+  trackContent: string;
+  closing: string;
+  startIndex: number;
+  endIndex: number;
+} | null {
+  const trackPattern = new RegExp(`track\\("${trackId}"\\)\\s*\\{`);
+  const match = trackPattern.exec(dslCode);
+  if (!match) return null;
+
+  const trackStart = match.index;
+  const contentStart = match.index + match[0].length;
+
+  // Find the matching closing brace using brace counting
+  let braceCount = 1;
+  let pos = contentStart;
+
+  while (pos < dslCode.length && braceCount > 0) {
+    if (dslCode[pos] === '{') braceCount++;
+    if (dslCode[pos] === '}') braceCount--;
+    pos++;
+  }
+
+  if (braceCount !== 0) {
+    return null;
+  }
+
+  const trackEnd = pos;
+  const fullMatch = dslCode.substring(trackStart, trackEnd);
+  const opening = match[0]; // "track("id") {"
+  const closing = '}';
+  const trackContent = dslCode.substring(contentStart, trackEnd - 1);
+
+  return {
+    fullMatch,
+    opening,
+    trackContent,
+    closing,
+    startIndex: trackStart,
+    endIndex: trackEnd
+  };
+}
+
 export function updateDSLWithNewNotes(
   dslCode: string,
   trackId: string,
   updatedNotes: TimelineNote[],
   tempo: number
 ): string {
-  const trackMatch = dslCode.match(new RegExp(`(track\\("${trackId}"\\)\\s*\\{)([\\s\\S]*?)(\\n\\})`, 'm'));
-  if (!trackMatch) return dslCode;
+  const extracted = extractTrackWithBraceMatching(dslCode, trackId);
+  if (!extracted) return dslCode;
 
-  const [fullMatch, opening, trackContent, closing] = trackMatch;
+  const { fullMatch, opening, trackContent, closing } = extracted;
 
   // Determine if this is a drum track
   const instrumentMatch = trackContent.match(/instrument\("([^"]+)"\)/);
   const instrument = instrumentMatch ? instrumentMatch[1] : undefined;
   const isDrum = isDrumTrack(trackId, instrument);
 
-  // First, extract original chord/note structures from DSL to preserve them
-  const contentWithoutLoops = trackContent.replace(/loop\s*\([^)]+\)\s*\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g, '');
-  const originalNoteStructures: string[] = [];
-
-  const notePattern = /note\("([^"]+)",\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g;
-  const chordPattern = /chord\(\[([^\]]+)\],\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/g;
-
-  // Collect original note/chord structures in order
-  const allMatches: Array<{index: number, type: 'note'|'chord', pitches: string[]}> = [];
-
-  for (const match of contentWithoutLoops.matchAll(notePattern)) {
-    allMatches.push({
-      index: match.index!,
-      type: 'note',
-      pitches: [match[1]]
-    });
-  }
-
-  for (const match of contentWithoutLoops.matchAll(chordPattern)) {
-    const chordNotes = match[1].split(',').map(n => n.trim().replace(/"/g, ''));
-    allMatches.push({
-      index: match.index!,
-      type: 'chord',
-      pitches: chordNotes
-    });
-  }
-
-  // Sort by position in DSL
-  allMatches.sort((a, b) => a.index - b.index);
-
   // Filter out loop-generated notes - only update directly-written notes
   const directNotes = updatedNotes.filter(note => !note.isFromLoop);
 
-  // Build array of updated note lines preserving original chord structure
-  const updatedNoteLines: string[] = [];
-  directNotes.forEach((note, idx) => {
-    const startSeconds = beatsToSeconds(note.start, tempo);
-    const durationSeconds = beatsToSeconds(note.duration, tempo);
+  // Parse original notes to get their IDs
+  const originalNotes = parseNotesFromDSL(dslCode, trackId, tempo).filter(note => !note.isFromLoop);
 
-    // Use original chord/note structure if available
-    const originalStructure = allMatches[idx];
-
-    if (originalStructure && originalStructure.type === 'chord') {
-      // Preserve original chord notes
-      const chordNotesStr = originalStructure.pitches.map(p => `"${p}"`).join(', ');
-      const noteLine = `chord([${chordNotesStr}], ${startSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${note.velocity.toFixed(2)})`;
-      updatedNoteLines.push(noteLine);
-    } else {
-      // Single note
-      const noteName = isDrum ? pitchToDrumName(note.pitch) : pitchToNote(note.pitch);
-      const noteLine = `note("${noteName}", ${startSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${note.velocity.toFixed(2)})`;
-      updatedNoteLines.push(noteLine);
+  // Build map of updated notes by ID
+  const updatedNotesById = new Map<string, TimelineNote>();
+  directNotes.forEach(note => {
+    if (note.id) {
+      updatedNotesById.set(note.id, note);
     }
   });
 
-  // Process track content line by line, replacing notes by index
-  const lines = trackContent.split('\n');
-  const newLines: string[] = [];
-  let noteIndex = 0; // Track which note/chord we're on
-  let insideLoop = false; // Track if we're inside a loop block
-  let loopDepth = 0; // Track nested braces
+  // Build map of original notes by index (order they appear in DSL)
+  const originalNotesByIndex = new Map<number, TimelineNote>();
+  originalNotes.forEach((note, index) => {
+    originalNotesByIndex.set(index, note);
+  });
 
+  // Detect indentation from existing note/chord lines
+  const lines = trackContent.split('\n');
+  let detectedIndent = '    '; // Default to 4 spaces
   for (const line of lines) {
+    const noteChordMatch = line.trim().match(/^(note|chord)\(/);
+    if (noteChordMatch) {
+      const indentMatch = line.match(/^(\s*)/);
+      if (indentMatch && indentMatch[1]) {
+        detectedIndent = indentMatch[1];
+        break;
+      }
+    }
+  }
+
+  // Track which IDs have been processed
+  const processedIds = new Set<string>();
+
+  // Process track content line by line, preserving structure
+  const newLines: string[] = [];
+  let noteCounter = 0; // Counter for notes/chords seen (matches parsing order)
+
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
     const trimmedLine = line.trim();
 
-    // Track loop blocks to avoid modifying notes inside them
-    if (trimmedLine.startsWith('loop(')) {
-      insideLoop = true;
-      loopDepth = 0;
-    }
+    // Check if this line starts a loop block
+    if (trimmedLine.match(/^loop\s*\(/)) {
+      // Find the matching closing brace for this loop
+      let loopBraceCount = 0;
+      let loopStartIndex = i;
+      let loopEndIndex = i;
 
-    if (insideLoop) {
-      // Count braces to track loop nesting
-      loopDepth += (line.match(/{/g) || []).length;
-      loopDepth -= (line.match(/}/g) || []).length;
+      // Count braces to find the loop's end
+      for (let j = i; j < lines.length; j++) {
+        const currentLine = lines[j];
+        for (let k = 0; k < currentLine.length; k++) {
+          if (currentLine[k] === '{') loopBraceCount++;
+          if (currentLine[k] === '}') loopBraceCount--;
+        }
 
-      // Keep all loop content as-is
-      newLines.push(line);
-
-      // Exit loop when we've closed all braces
-      if (loopDepth === 0 && trimmedLine.includes('}')) {
-        insideLoop = false;
+        if (loopBraceCount === 0 && j > i) {
+          loopEndIndex = j;
+          break;
+        }
       }
+
+      // Preserve all lines from loop start to loop end (inclusive)
+      for (let j = loopStartIndex; j <= loopEndIndex; j++) {
+        newLines.push(lines[j]);
+      }
+
+      // Skip to the line after the loop
+      i = loopEndIndex + 1;
       continue;
     }
 
-    // Check if this is a note or chord line (outside loops)
-    const noteMatch = trimmedLine.match(/^(note|chord)\((?:"[^"]+"|(?:\[[^\]]+\])),\s*([0-9.]+)/);
+    // Check if this is a note or chord line (outside of loops)
+    const noteMatch = trimmedLine.match(/^(note|chord)\(/);
     if (noteMatch) {
-      // Replace with the corresponding updated note (by index, not time)
-      if (noteIndex < updatedNoteLines.length) {
-        // Preserve original indentation
-        const indent = line.match(/^(\s*)/)?.[1] || '    ';
-        newLines.push(`${indent}${updatedNoteLines[noteIndex]}`);
-        noteIndex++;
-      } else {
-        // Shouldn't happen, but keep original if we run out of updated notes
-        newLines.push(line);
+      // Get the original note by index (order it appears in DSL)
+      const originalNote = originalNotesByIndex.get(noteCounter);
+
+      if (originalNote && originalNote.id) {
+        // Look up the updated version by ID
+        const updatedNote = updatedNotesById.get(originalNote.id);
+
+        if (updatedNote) {
+          // Note exists in updated list - update it in place
+          const indentMatch = line.match(/^(\s*)/);
+          const indent = indentMatch ? indentMatch[1] : detectedIndent;
+
+          // Generate the updated line
+          const timeSeconds = beatsToSeconds(updatedNote.start, tempo);
+          const durationSeconds = beatsToSeconds(updatedNote.duration, tempo);
+
+          let updatedLine: string;
+          if (updatedNote.isChord && updatedNote.chordPitches && updatedNote.chordPitches.length > 1) {
+            const noteNames = updatedNote.chordPitches.map(pitch => {
+              const name = isDrum ? pitchToDrumName(pitch) : pitchToNote(pitch);
+              return `"${name}"`;
+            }).join(', ');
+            updatedLine = `${indent}chord([${noteNames}], ${timeSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${updatedNote.velocity.toFixed(2)})`;
+          } else {
+            const noteName = isDrum ? pitchToDrumName(updatedNote.pitch) : pitchToNote(updatedNote.pitch);
+            updatedLine = `${indent}note("${noteName}", ${timeSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${updatedNote.velocity.toFixed(2)})`;
+          }
+
+          newLines.push(updatedLine);
+          processedIds.add(originalNote.id);
+        } else {
+          // Note was deleted - don't add to newLines
+        }
       }
+
+      noteCounter++;
     } else {
       // Keep all non-note lines (comments, blank lines, instrument)
       newLines.push(line);
     }
+
+    i++;
   }
 
-  // Add any remaining new notes that weren't in the original
-  if (noteIndex < updatedNoteLines.length) {
-    for (let i = noteIndex; i < updatedNoteLines.length; i++) {
-      newLines.push(`    ${updatedNoteLines[i]}`);
+  // Add any new notes that weren't in the original
+  // This includes: notes without IDs (brand new) or notes with IDs not yet processed
+  const newNotes: string[] = [];
+  directNotes.forEach(note => {
+    if (!note.id || !processedIds.has(note.id)) {
+      // This is a new note (either no ID or ID not matched)
+      const timeSeconds = beatsToSeconds(note.start, tempo);
+      const durationSeconds = beatsToSeconds(note.duration, tempo);
+
+      let line: string;
+      if (note.isChord && note.chordPitches && note.chordPitches.length > 1) {
+        const noteNames = note.chordPitches.map(pitch => {
+          const name = isDrum ? pitchToDrumName(pitch) : pitchToNote(pitch);
+          return `"${name}"`;
+        }).join(', ');
+        line = `${detectedIndent}chord([${noteNames}], ${timeSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${note.velocity.toFixed(2)})`;
+      } else {
+        const noteName = isDrum ? pitchToDrumName(note.pitch) : pitchToNote(note.pitch);
+        line = `${detectedIndent}note("${noteName}", ${timeSeconds.toFixed(3)}, ${durationSeconds.toFixed(3)}, ${note.velocity.toFixed(2)})`;
+      }
+
+      newNotes.push(line);
     }
+  });
+
+  // Insert new notes at the end before closing brace
+  if (newNotes.length > 0) {
+    let insertIndex = newLines.length - 1;
+    while (insertIndex >= 0 && newLines[insertIndex].trim() === '') {
+      insertIndex--;
+    }
+    newLines.splice(insertIndex + 1, 0, ...newNotes);
   }
 
   // Remove leading empty lines (to avoid double blank after opening brace)
