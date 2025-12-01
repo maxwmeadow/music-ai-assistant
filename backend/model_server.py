@@ -47,10 +47,12 @@ class ModelServer:
         self.c_major_scale = [60, 62, 64, 65, 67, 69, 71, 72]
         self.a_minor_scale = [57, 59, 60, 62, 64, 65, 67, 69]
 
+        # Initialize model attributes
+        self.predictor = None
+        self.beatbox_predictor = None
+
         if self.lazy_load:
-            print("⚡ Lazy loading enabled - models load on first use")
-            self.predictor = None
-            self.beatbox_predictor = None
+            print("[ModelServer.__init__] ⚡ Lazy loading enabled - models will load on first use")
         else:
             self._load_hum2melody_model()
             self._load_beatbox2drums_model()
