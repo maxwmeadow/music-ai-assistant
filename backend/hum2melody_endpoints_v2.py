@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, List, Dict, Any
+import time
 
 from backend.audio_session_manager import get_session_manager
 from backend.segment_extractor import extract_segments_with_detection
@@ -33,11 +34,14 @@ async def hum_to_melody_v2(
     return_visualization: bool = Form(True)
 ):
     """Enhanced hum2melody endpoint with session management and visualization data."""
+    start_time = time.time()
     print(f"[HUM2MELODY_V2] {audio.filename} | onset={onset_high}/{onset_low} offset={offset_high}/{offset_low} conf={min_confidence}")
 
     try:
         # Read audio bytes
+        t0 = time.time()
         audio_bytes = await audio.read()
+        print(f"  ⏱️ Audio read: {time.time() - t0:.2f}s")
 
         # DEBUG: Log audio info
         print(f"  Audio bytes received: {len(audio_bytes)} bytes")
@@ -46,6 +50,7 @@ async def hum_to_melody_v2(
         print(f"  First 44 bytes (WAV header): {audio_bytes[:44].hex() if len(audio_bytes) >= 44 else 'too short'}")
 
         # Create session
+        t1 = time.time()
         session_metadata = {
             'instrument': instrument,
             'onset_high': onset_high,
@@ -60,17 +65,21 @@ async def hum_to_melody_v2(
             audio.filename or "recording.wav",
             metadata=session_metadata
         )
+        print(f"  ⏱️ Session created: {time.time() - t1:.2f}s")
 
         # Get audio path
         audio_path = session_manager.get_audio_path(session_id)
 
         # Process audio for features (get duration)
+        t2 = time.time()
         audio_features = audio_processor.preprocess_for_hum2melody(audio_bytes)
         duration = audio_features['duration']
+        print(f"  ⏱️ Audio preprocessing: {time.time() - t2:.2f}s")
 
         # Use ONE detection system: amplitude onset detection + pitch model
         # This is the same detection used in the DetectionTuner visualization
         print(f"  Running detection with amplitude onset detector...")
+        t3 = time.time()
         viz_data = extract_segments_with_detection(
             audio_path,
             onset_high=onset_high,
@@ -79,6 +88,7 @@ async def hum_to_melody_v2(
             offset_low=offset_low,
             min_confidence=min_confidence
         )
+        print(f"  ⏱️ SEGMENT EXTRACTION (model inference): {time.time() - t3:.2f}s")
 
         print(f"  Detected {len(viz_data['segments'])} segments")
 
@@ -157,6 +167,9 @@ async def hum_to_melody_v2(
                 }
             }
         }
+
+        total_time = time.time() - start_time
+        print(f"  ⏱️ TOTAL REQUEST TIME: {total_time:.2f}s")
 
         return JSONResponse(content=response_data)
 
