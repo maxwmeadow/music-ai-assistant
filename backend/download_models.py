@@ -7,27 +7,27 @@ import urllib.request
 import urllib.error
 
 # R2 base URL (from CDN configuration)
-R2_BASE_URL = os.getenv("MODEL_CDN_URL", "https://pub-e7b8ae5d5dcb4e23b0bf02e7b966c2f7.r2.dev")
+R2_BASE_URL = os.getenv("MODEL_CDN_URL", "https://models.phonauto.com")
 
 # Model files to download
 MODEL_FILES = [
     {
-        "url": f"{R2_BASE_URL}/backend-models/hum2melody/checkpoints/combined_hum2melody_full.pth",
+        "url": f"{R2_BASE_URL}/hum2melody/checkpoints/combined_hum2melody_full.pth",
         "path": "hum2melody/checkpoints/combined_hum2melody_full.pth",
         "size_mb": 135
     },
     {
-        "url": f"{R2_BASE_URL}/backend-models/beatbox2drums/checkpoints/onset_detector/best_onset_model.h5",
+        "url": f"{R2_BASE_URL}/beatbox2drums/checkpoints/onset_detector/best_onset_model.h5",
         "path": "beatbox2drums/checkpoints/onset_detector/best_onset_model.h5",
         "size_mb": 3.7
     },
     {
-        "url": f"{R2_BASE_URL}/backend-models/beatbox2drums/checkpoints/drum_classifier/best_model_multi_input.pth",
+        "url": f"{R2_BASE_URL}/beatbox2drums/checkpoints/drum_classifier/best_model_multi_input.pth",
         "path": "beatbox2drums/checkpoints/drum_classifier/best_model_multi_input.pth",
         "size_mb": 1.5
     },
     {
-        "url": f"{R2_BASE_URL}/backend-models/beatbox2drums/checkpoints/drum_classifier/feature_normalization.npz",
+        "url": f"{R2_BASE_URL}/beatbox2drums/checkpoints/drum_classifier/feature_normalization.npz",
         "path": "beatbox2drums/checkpoints/drum_classifier/feature_normalization.npz",
         "size_mb": 0.001
     }
