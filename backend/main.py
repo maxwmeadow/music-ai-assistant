@@ -24,6 +24,29 @@ from .job_manager import get_job_manager, JobStatus
 from .arranger_service import get_arranger_service
 import asyncio
 
+# Global inference optimizations (before model initialization)
+import torch
+import numpy as np
+import os
+
+# Determine optimal thread count
+num_threads = os.cpu_count() or 4
+
+# PyTorch optimizations
+torch.set_grad_enabled(False)  # Disable gradient computation globally
+if not torch.cuda.is_available():
+    torch.set_num_threads(num_threads)
+
+# NumPy/BLAS optimizations (for librosa operations)
+os.environ['OMP_NUM_THREADS'] = str(num_threads)
+os.environ['MKL_NUM_THREADS'] = str(num_threads)
+os.environ['OPENBLAS_NUM_THREADS'] = str(num_threads)
+
+print(f"[STARTUP] Inference optimizations enabled:")
+print(f"  - CPU threads: {num_threads}")
+print(f"  - PyTorch gradients: disabled")
+print(f"  - Multi-threaded BLAS: enabled")
+
 USING_DOCKER=True
 
 settings = load_settings()

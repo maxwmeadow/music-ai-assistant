@@ -99,6 +99,13 @@ class Beatbox2DrumsPipeline:
             self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         print(f"Device: {self.device}")
 
+        # Optimize CPU inference
+        if str(self.device) == 'cpu':
+            import os
+            num_threads = os.cpu_count() or 4
+            torch.set_num_threads(num_threads)
+            print(f"Using {num_threads} CPU threads for inference")
+
         # Audio parameters (must match training)
         self.sample_rate = 16000
         self.n_mels_classifier = 128  # Classifier uses 128 mel bands
@@ -367,7 +374,7 @@ class Beatbox2DrumsPipeline:
         mel_tensor = mel_tensor.to(self.device)
 
         # Run inference
-        with torch.no_grad():
+        with torch.inference_mode():
             if self.use_multi_input and spectral_features is not None:
                 # Normalize spectral features
                 features_normalized = (spectral_features - self.feature_mean) / self.feature_std

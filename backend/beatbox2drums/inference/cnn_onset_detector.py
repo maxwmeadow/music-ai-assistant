@@ -9,7 +9,16 @@ import numpy as np
 import librosa
 from pathlib import Path
 from typing import List, Tuple, Optional
+import os
+
+# Optimize TensorFlow for CPU inference
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Reduce TensorFlow logging
 import tensorflow as tf
+
+# Enable CPU threading for TensorFlow
+num_threads = os.cpu_count() or 4
+tf.config.threading.set_intra_op_parallelism_threads(num_threads)
+tf.config.threading.set_inter_op_parallelism_threads(num_threads)
 
 
 class CNNOnsetDetector:

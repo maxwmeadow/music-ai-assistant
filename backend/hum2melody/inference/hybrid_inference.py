@@ -66,6 +66,13 @@ class HybridHum2Melody:
         print("INITIALIZING HYBRID HUM2MELODY")
         print(f"{'='*70}")
 
+        # Optimize CPU inference
+        if device == 'cpu':
+            import os
+            num_threads = os.cpu_count() or 4
+            torch.set_num_threads(num_threads)
+            print(f"Using {num_threads} CPU threads for inference")
+
         # Load combined model
         print(f"Loading combined model from: {checkpoint_path}")
         self.model = load_combined_model(checkpoint_path, device=device)
@@ -181,7 +188,7 @@ class HybridHum2Melody:
         cqt = cqt.to(self.device)
         extras = extras.to(self.device)
 
-        with torch.no_grad():
+        with torch.inference_mode():
             frame, onset, offset, f0 = self.model(cqt, extras)
 
         # Convert to probabilities
