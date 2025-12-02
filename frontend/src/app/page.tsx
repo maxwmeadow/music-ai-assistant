@@ -162,20 +162,25 @@ export default function Home() {
   };
 
   const playAudio = async () => {
+    console.log('[page.tsx] [DEBUG] ===== playAudio() called =====');
     if (!executableCode) {
+      console.log('[page.tsx] [DEBUG] No executable code, returning');
       showToast("Please compile the code first");
       return;
     }
 
     if (isLoadingAudio) {
+      console.log('[page.tsx] [DEBUG] Audio still loading, returning');
       showToast("Audio is still loading...");
       return;
     }
 
+    console.log('[page.tsx] [DEBUG] Clearing auto-stop timeout');
     AudioService.clearAutoStop();
 
     setLoadingPlay(true);
     setIsPlaying(true);
+    console.log('[page.tsx] [DEBUG] Set isPlaying = true');
 
     try {
       await AudioService.initializeTone(trackVolumes);
@@ -184,8 +189,10 @@ export default function Home() {
       const transportState = AudioService.getTransportState();
       const maxDuration = calculateMaxDuration();
       const currentPosition = transportState?.seconds || 0;
+      console.log('[page.tsx] [DEBUG] Current position:', currentPosition, 'Max duration:', maxDuration);
 
       if (currentPosition >= maxDuration - 0.1) {
+        console.log('[page.tsx] [DEBUG] At end, resetting to beginning');
         // At the end, reset to beginning
         AudioService.seek(0);
         setCurrentTime(0);
@@ -193,14 +200,19 @@ export default function Home() {
 
       const updatedTransportState = AudioService.getTransportState();
       const isResuming = updatedTransportState && updatedTransportState.seconds > 0 && updatedTransportState.state === 'paused';
+      console.log('[page.tsx] [DEBUG] isResuming:', isResuming);
+      console.log('[page.tsx] [DEBUG] areSamplesPreloaded:', AudioService.areSamplesPreloaded());
 
       // Load samples if not already preloaded
       if (!isResuming && !AudioService.areSamplesPreloaded()) {
+        console.log('[page.tsx] [DEBUG] Loading samples with eval()');
         setIsLoadingAudio(true);
         eval(executableCode);
         AudioService.markSamplesPreloaded();
+        console.log('[page.tsx] [DEBUG] Samples loaded and marked');
       }
 
+      console.log('[page.tsx] [DEBUG] Starting transport');
       AudioService.startTransport();
 
       // Apply volume settings
@@ -216,12 +228,15 @@ export default function Home() {
       // Set auto-stop timeout (only if not looping)
       if (!loopEnabled) {
         const remainingTime = Math.max(0, maxDuration - currentPositionForAutoStop) + 1.5;
+        console.log('[page.tsx] [DEBUG] Setting frontend auto-stop for', remainingTime, 'seconds');
         AudioService.setAutoStop(remainingTime, stopAudio);
+      } else {
+        console.log('[page.tsx] [DEBUG] Loop enabled, not setting auto-stop');
       }
 
       showToast(isResuming ? 'Resumed' : `Playing (${maxDuration.toFixed(1)}s)...`);
     } catch (error) {
-      console.error(error);
+      console.error('[page.tsx] [DEBUG] Playback error:', error);
       showToast("Playback error");
       setIsPlaying(false);
     } finally {
@@ -230,19 +245,24 @@ export default function Home() {
   };
 
   const stopAudio = () => {
+    console.log('[page.tsx] [DEBUG] ===== stopAudio() called =====');
+    console.log('[page.tsx] [DEBUG] Stack trace:', new Error().stack);
     AudioService.clearAutoStop();
     const wasPlaying = AudioService.pauseTransport();
     setIsPlaying(false);
+    console.log('[page.tsx] [DEBUG] Set isPlaying = false, wasPlaying:', wasPlaying);
     if (wasPlaying) {
       showToast("Paused");
     }
   };
 
   const resetAudio = () => {
+    console.log('[page.tsx] [DEBUG] ===== resetAudio() called =====');
     AudioService.clearAutoStop();
     AudioService.stopTransport();
     setCurrentTime(0);
     setIsPlaying(false);
+    console.log('[page.tsx] [DEBUG] Set isPlaying = false');
     showToast("Stopped");
   };
 

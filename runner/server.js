@@ -958,22 +958,44 @@ function generateExecutableCode(CDN_BASE, tempo, trackConfigs, trackSchedules, a
         }, clip.start);
     });
 
+    // DEBUG: Check if this is a preload operation
+    const isPreloading = window.__isPreloading;
+    console.log('[Music] [DEBUG] About to start transport. isPreloading:', isPreloading);
+    console.log('[Music] [DEBUG] Transport state before start:', Tone.Transport.state);
+    console.log('[Music] [DEBUG] Current time:', Tone.Transport.seconds);
+
     Tone.Transport.start();
     console.log('[Music] Playing... (' + duration.toFixed(2) + 's)');
-    
+    console.log('[Music] [DEBUG] Transport state after start:', Tone.Transport.state);
+
     const playbackTimeout = setTimeout(() => {
+        console.log('[Music] [DEBUG] ===== AUTO-STOP TIMEOUT FIRED =====');
+        console.log('[Music] [DEBUG] Transport state:', Tone.Transport.state);
+        console.log('[Music] [DEBUG] Transport time:', Tone.Transport.seconds);
+        console.log('[Music] [DEBUG] isPreloading:', window.__isPreloading);
+        console.log('[Music] [DEBUG] Expected duration:', duration);
         Tone.Transport.stop();
-        console.log('[Music] Playback complete');
+        console.log('[Music] Playback complete (REASON: Auto-stop timeout after ' + (duration + 1) + 's)');
     }, (duration + 1) * 1000);
+
+    console.log('[Music] [DEBUG] Auto-stop timeout set for ' + (duration + 1) + 's (timeout ID: ' + playbackTimeout + ')');
     
     window.__musicControls = {
         stop: () => {
+            console.log('[Music] [DEBUG] __musicControls.stop() called');
+            console.log('[Music] [DEBUG] Stack trace:', new Error().stack);
             clearTimeout(playbackTimeout);  // Clear the auto-stop timeout
             Tone.Transport.stop();
-            console.log('[Music] Playback complete');
+            console.log('[Music] Playback complete (REASON: Manual stop via __musicControls.stop())');
         },
-        pause: () => Tone.Transport.pause(),
-        resume: () => Tone.Transport.start(),
+        pause: () => {
+            console.log('[Music] [DEBUG] __musicControls.pause() called');
+            Tone.Transport.pause();
+        },
+        resume: () => {
+            console.log('[Music] [DEBUG] __musicControls.resume() called');
+            Tone.Transport.start();
+        },
         pools: instrumentPools
     };
 })();
