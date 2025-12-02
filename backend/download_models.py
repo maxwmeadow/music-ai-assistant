@@ -66,7 +66,7 @@ def download_file(url: str, dest_path: Path, size_mb: float):
 
 
 def check_and_download_models():
-    """Check if models exist, download if missing."""
+    """Always download models from R2 (Git LFS doesn't work on Railway)."""
     print("=" * 60)
     print("MODEL CHECKPOINT DOWNLOAD")
     print("=" * 60)
@@ -75,33 +75,26 @@ def check_and_download_models():
     # When running from /app with --app-dir /app, paths should be relative to /app/backend
     backend_dir = Path(__file__).parent
     print(f"Backend directory: {backend_dir}")
+    print(f"Note: Git LFS doesn't work on Railway - always downloading from R2\n")
 
-    missing_files = []
-    existing_files = []
-
-    # Check which files are missing
+    # Delete any existing files (they're likely LFS pointers from git clone)
     for model in MODEL_FILES:
         model_path = backend_dir / model["path"]
         if model_path.exists():
             size_mb = model_path.stat().st_size / (1024 * 1024)
-            print(f"✅ Found {model['path']} ({size_mb:.1f} MB)")
-            existing_files.append(model)
-        else:
-            print(f"❌ Missing {model['path']}")
-            missing_files.append(model)
+            print(f"🗑️  Deleting existing {model['path']} ({size_mb:.1f} MB - likely LFS pointer)")
+            try:
+                model_path.unlink()
+            except Exception as e:
+                print(f"⚠️ Failed to delete {model['path']}: {e}")
 
-    if not missing_files:
-        print("\n✅ All model files present")
-        print("=" * 60)
-        return True
-
-    # Download missing files
-    print(f"\n📥 Downloading {len(missing_files)} missing model files...")
-    total_mb = sum(m["size_mb"] for m in missing_files)
+    # Download all files
+    print(f"\n📥 Downloading {len(MODEL_FILES)} model files from R2...")
+    total_mb = sum(m["size_mb"] for m in MODEL_FILES)
     print(f"Total download size: {total_mb:.1f} MB\n")
 
     success_count = 0
-    for model in missing_files:
+    for model in MODEL_FILES:
         model_path = backend_dir / model["path"]
         if download_file(model["url"], model_path, model["size_mb"]):
             success_count += 1
@@ -109,10 +102,10 @@ def check_and_download_models():
             print(f"⚠️ Failed to download {model['path']}, will use mock predictions")
 
     print("\n" + "=" * 60)
-    print(f"Downloaded {success_count}/{len(missing_files)} files successfully")
+    print(f"Downloaded {success_count}/{len(MODEL_FILES)} files successfully")
     print("=" * 60)
 
-    return success_count == len(missing_files)
+    return success_count == len(MODEL_FILES)
 
 
 if __name__ == "__main__":
