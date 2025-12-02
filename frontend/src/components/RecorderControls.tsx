@@ -11,8 +11,9 @@ import { Clock, Mic, Play, Square, Sparkles } from "lucide-react";
 
 interface RecorderControlsProps {
     onMelodyGenerated?: (ir: any) => void;
-    mode?: 'melody' | 'drums';
+    mode?: 'melody' | 'drums' | 'vocal';
     onVisualizationClose?: () => void;
+    onAddToTimeline?: (blob: Blob, startTimeSec: number) => void;
     maxDuration?: number; // Max duration of the current song in seconds
 }
 
@@ -20,11 +21,13 @@ export function RecorderControls({
     onMelodyGenerated,
     mode = 'melody',
     onVisualizationClose,
+    onAddToTimeline,
     maxDuration = 0
 }: RecorderControlsProps = {
     onMelodyGenerated: undefined,
     mode: 'melody',
     onVisualizationClose: undefined,
+    onAddToTimeline: undefined,
     maxDuration: 0
 }) {
     const [recorder, setRecorder] = useState<AudioRecorder | null>(null);
@@ -215,6 +218,17 @@ export function RecorderControls({
         }
     };
 
+    const addToTimeline = async () => {
+        if (!lastBlob || !onAddToTimeline) return;
+        try {
+            onAddToTimeline(lastBlob, startTime);
+            setStatus("Added to timeline");
+        } catch (err) {
+            console.error("Failed to add to timeline:", err);
+            setStatus("Failed to add to timeline");
+        }
+    };
+
     // Format time as MM:SS
     const formatTime = (seconds: number) => {
         const mins = Math.floor(seconds / 60);
@@ -338,19 +352,33 @@ export function RecorderControls({
                 </span>
             </div>
 
-            {/* Generate Button */}
+            {/* Generate / Add Button */}
             {lastBlob && !busy && (
-                <button
-                    onClick={sendToModel}
-                    disabled={!lastBlob || busy}
-                    className="w-full px-6 py-3 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600
-                             hover:from-purple-500 hover:to-pink-500 text-white font-semibold text-lg
-                             disabled:opacity-50 disabled:cursor-not-allowed transition-all transform hover:scale-[1.02]
-                             flex items-center justify-center gap-2 shadow-lg"
-                >
-                    <Sparkles className="w-5 h-5" />
-                    {mode === 'drums' ? "Generate Drum Track" : "Generate Melody"}
-                </button>
+                mode === 'vocal' ? (
+                    <button
+                        onClick={addToTimeline}
+                        disabled={!lastBlob || busy}
+                        className="w-full px-6 py-3 rounded-lg bg-gradient-to-r from-green-600 to-emerald-500
+                                 hover:from-green-500 hover:to-emerald-400 text-white font-semibold text-lg
+                                 disabled:opacity-50 disabled:cursor-not-allowed transition-all transform hover:scale-[1.02]
+                                 flex items-center justify-center gap-2 shadow-lg"
+                    >
+                        <Mic className="w-5 h-5" />
+                        Add Vocal Track to Timeline
+                    </button>
+                ) : (
+                    <button
+                        onClick={sendToModel}
+                        disabled={!lastBlob || busy}
+                        className="w-full px-6 py-3 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600
+                                 hover:from-purple-500 hover:to-pink-500 text-white font-semibold text-lg
+                                 disabled:opacity-50 disabled:cursor-not-allowed transition-all transform hover:scale-[1.02]
+                                 flex items-center justify-center gap-2 shadow-lg"
+                    >
+                        <Sparkles className="w-5 h-5" />
+                        {mode === 'drums' ? "Generate Drum Track" : "Generate Melody"}
+                    </button>
+                )
             )}
 
             {/* Hidden audio element for playback */}

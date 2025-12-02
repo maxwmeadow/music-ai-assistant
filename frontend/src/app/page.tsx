@@ -8,6 +8,7 @@ import { RecorderControls } from "@/components/RecorderControls";
 import { parseTracksFromDSL, ParsedTrack } from "@/lib/dslParser";
 import { Mic, Music, Drum, Play, Square, Sparkles, Sliders, Piano, ChevronDown, Undo, Redo, Radio, Repeat } from "lucide-react";
 import { Timeline } from "@/components/Timeline/Timeline";
+import { getTempoFromDSL, secondsToBeats } from "@/components/Timeline/timelineHelpers";
 import { PianoRoll } from "@/components/PianoRoll/PianoRoll";
 import DetectionTuner from "@/components/DetectionTuner";
 import { compileIR, VisualizationData } from "@/lib/hum2melody-api";
@@ -69,7 +70,11 @@ export default function Home() {
   // Panel visibility
   const [showMixer, setShowMixer] = useState(false);
   const [showRecorder, setShowRecorder] = useState(false);
-  const [recordingMode, setRecordingMode] = useState<'melody' | 'drums' | null>(null);
+  const [recordingMode, setRecordingMode] = useState<'melody' | 'drums' | 'vocal' | null>(null);
+
+  // Vocal clips state (raw audio added to timeline)
+  const [vocalClips, setVocalClips] = useState<Array<{ id: string; trackId: string; url: string; start: number; duration: number }>>([]);
+  const [nextVocalId, setNextVocalId] = useState(1);
 
   // Track name modal state
   const [showTrackNameModal, setShowTrackNameModal] = useState(false);
@@ -681,6 +686,52 @@ export default function Home() {
     setShowRecorder(true);
   };
 
+  const openVocalRecorder = () => {
+    setRecordingMode('vocal');
+    setShowRecorder(true);
+  };
+
+  const handleAddVocalClip = async (blob: Blob, startTimeSec: number) => {
+    // Create URL and obtain duration
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    await new Promise((res, rej) => {
+      audio.addEventListener('loadedmetadata', () => res(null));
+      audio.addEventListener('error', (e) => rej(e));
+    });
+    const durationSec = audio.duration || 0;
+
+    const tempo = getTempoFromDSL(code);
+    const startBeats = secondsToBeats(startTimeSec, tempo);
+    const durationBeats = secondsToBeats(durationSec, tempo);
+
+    const vid = `vocal-${nextVocalId}`;
+    setNextVocalId(prev => prev + 1);
+
+    // Each vocal clip gets its own synthetic track id so it behaves like an instrument track
+    const clip = {
+      id: vid,
+      trackId: vid,
+      url,
+      start: startBeats,
+      duration: durationBeats,
+    };
+
+    setVocalClips(prev => [...prev, clip]);
+    // Close recorder
+    setShowRecorder(false);
+    setRecordingMode(null);
+    toast("Vocal clip added to timeline");
+  };
+
+  const handleUpdateVocalClip = (updated: { id: string; start?: number; duration?: number }) => {
+    setVocalClips(prev => prev.map(c => c.id === updated.id ? { ...c, ...(updated.start !== undefined ? { start: updated.start } : {}), ...(updated.duration !== undefined ? { duration: updated.duration } : {}) } : c));
+  };
+
+  const handleDeleteVocalClip = (id: string) => {
+    setVocalClips(prev => prev.filter(c => c.id !== id));
+  };
+
   const handleTrackNameConfirm = async (trackName: string, instrument: string) => {
     setShowTrackNameModal(false);
     if (pendingIR) {
@@ -1037,10 +1088,15 @@ export default function Home() {
                     <Mic className="w-5 h-5 text-blue-400" />
                     Record Melody
                   </>
-                ) : (
+                ) : recordingMode === 'drums' ? (
                   <>
                     <Drum className="w-5 h-5 text-orange-400" />
                     Record Drums
+                  </>
+                ) : (
+                  <>
+                    <Mic className="w-5 h-5 text-emerald-400" />
+                    Record Vocal
                   </>
                 )}
               </h2>
@@ -1060,13 +1116,14 @@ export default function Home() {
               mode={recordingMode || 'melody'}
               onMelodyGenerated={handleMelodyGenerated}
               onVisualizationClose={handleVisualizationClose}
+              onAddToTimeline={handleAddVocalClip}
             />
           </div>
         </div>
       )}
 
       {/* Top Toolbar */}
-      <div className="flex-none h-16 bg-[#252525] border-b border-gray-800 flex items-center px-4 gap-4 overflow-visible">
+      <div className="flex-none h-16 bg-[#252525] border-b border-gray-800 flex items-center px-4 gap-4 overflow-x-auto whitespace-nowrap">
         {/* Logo */}
         <div className="flex items-center gap-2 mr-4 flex-shrink-0 select-none">
           <img
@@ -1122,6 +1179,14 @@ export default function Home() {
           >
             <Drum className="w-4 h-4" />
             Beatbox2Drums
+          </button>
+          <button
+            id="vocal-track-button"
+            onClick={() => openVocalRecorder()}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors text-sm font-medium"
+          >
+            <Mic className="w-4 h-4" />
+            Vocal Track
           </button>
           <button
             id="arranger-button"
@@ -1291,9 +1356,11 @@ export default function Home() {
             <h2 className="text-sm font-semibold text-gray-300 select-none">ARRANGEMENT</h2>
           </div>
           <div className="flex-1 overflow-hidden p-4">
-            {tracks.length > 0 ? (
+            {(tracks.length > 0 || vocalClips.length > 0) ? (
               <Timeline
                 tracks={tracks}
+                // Pass vocal audio clips as extra timeline items
+                audioClips={vocalClips}
                 dslCode={code}
                 onCodeChange={setCode}
                 isPlaying={isPlaying}
@@ -1312,6 +1379,8 @@ export default function Home() {
                 onMelodyGenerated={handleMelodyGenerated}
                 onCompile={sendToRunner}
                 executableCode={executableCode}
+                onUpdateAudioClip={handleUpdateVocalClip}
+                onDeleteAudioClip={handleDeleteVocalClip}
               />
             ) : (
               <div className="h-full flex items-center justify-center text-gray-500">

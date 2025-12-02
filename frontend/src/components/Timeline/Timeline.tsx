@@ -50,6 +50,9 @@ interface TimelineProps {
   onMelodyGenerated?: (ir: any) => void;
   onCompile?: () => Promise<void>;
   executableCode?: string;
+  audioClips?: Array<{ id: string; trackId: string; url: string; start: number; duration: number }>;
+  onUpdateAudioClip?: (clip: { id: string; start?: number; duration?: number }) => void;
+  onDeleteAudioClip?: (id: string) => void;
 }
 
 export function Timeline({
@@ -69,12 +72,34 @@ export function Timeline({
   onMelodyGenerated,
   onCompile,
   executableCode
+  , audioClips,
+  onUpdateAudioClip,
+  onDeleteAudioClip
 }: TimelineProps) {
   const [zoom, setZoom] = useState(50);
   const [selectedNotes, setSelectedNotes] = useState<SelectedNote[]>([]);
   const [lastSelectedNote, setLastSelectedNote] = useState<SelectedNote | null>(null); // For shift-select range
   const [draggingNote, setDraggingNote] = useState<DraggingNote | null>(null);
   const [resizingNote, setResizingNote] = useState<ResizingNote | null>(null);
+  const [draggingAudio, setDraggingAudio] = useState<{
+    id: string;
+    trackId: string;
+    startX: number;
+    initialStart: number;
+    currentStart?: number;
+    committed?: boolean;
+  } | null>(null);
+
+  const [resizingAudio, setResizingAudio] = useState<{
+    id: string;
+    trackId: string;
+    startX: number;
+    initialDuration: number;
+    currentDuration?: number;
+    committed?: boolean;
+  } | null>(null);
+
+  const [selectedAudioId, setSelectedAudioId] = useState<string | null>(null);
   const [isDraggingPlayhead, setIsDraggingPlayhead] = useState(false);
   const [isDraggingLoop, setIsDraggingLoop] = useState(false);
   const [loopDragStartX, setLoopDragStartX] = useState(0);
@@ -203,6 +228,25 @@ export function Timeline({
     }
   };
 
+  const handleAudioMouseDown = (e: React.MouseEvent, clipId: string, trackId: string, isResize: boolean) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const clip = (audioClips || []).find(c => c.id === clipId);
+    if (!clip) return;
+
+    const isAlreadySelected = selectedAudioId === clipId;
+    if (!isAlreadySelected) {
+      setSelectedNotes([]);
+      setSelectedAudioId(clipId);
+    }
+
+    if (isResize) {
+      setResizingAudio({ id: clipId, trackId, startX: e.clientX, initialDuration: clip.duration });
+    } else {
+      setDraggingAudio({ id: clipId, trackId, startX: e.clientX, initialStart: clip.start });
+    }
+  };
+
   const handleMouseMove = (e: MouseEvent) => {
     if (draggingNote && !draggingNote.committed) {
       e.preventDefault(); // Prevent text selection during drag
@@ -226,6 +270,16 @@ export function Timeline({
         ...resizingNote,
         currentDuration: newDuration
       });
+    } else if (draggingAudio && !draggingAudio.committed) {
+      e.preventDefault();
+      const deltaX = e.clientX - draggingAudio.startX;
+      const newStart = calculateNoteDrag(deltaX, zoom, draggingAudio.initialStart, snapValue, snapEnabled);
+      setDraggingAudio({ ...draggingAudio, currentStart: newStart });
+    } else if (resizingAudio && !resizingAudio.committed) {
+      e.preventDefault();
+      const deltaX = e.clientX - resizingAudio.startX;
+      const newDuration = calculateNoteResize(deltaX, zoom, resizingAudio.initialDuration, snapValue, snapEnabled);
+      setResizingAudio({ ...resizingAudio, currentDuration: newDuration });
     }
   };
 
@@ -267,6 +321,21 @@ export function Timeline({
       // No resize happened, just clear the state immediately
       setResizingNote(null);
     }
+
+    // Audio drag commit
+    if (draggingAudio && draggingAudio.currentStart !== undefined) {
+      setDraggingAudio({ ...draggingAudio, committed: true });
+      if (onUpdateAudioClip) onUpdateAudioClip({ id: draggingAudio.id, start: draggingAudio.currentStart });
+    } else {
+      setDraggingAudio(null);
+    }
+
+    if (resizingAudio && resizingAudio.currentDuration !== undefined) {
+      setResizingAudio({ ...resizingAudio, committed: true });
+      if (onUpdateAudioClip) onUpdateAudioClip({ id: resizingAudio.id, duration: resizingAudio.currentDuration });
+    } else {
+      setResizingAudio(null);
+    }
   };
 
   const handleTimelineClick = (e: React.MouseEvent) => {
@@ -282,6 +351,7 @@ export function Timeline({
     onSeek(Math.max(0, clickedTime));
     setIsDraggingPlayhead(true);
     setSelectedNotes([]);
+    setSelectedAudioId(null);
   };
 
   const handlePlayheadDrag = (e: MouseEvent) => {
@@ -339,7 +409,7 @@ export function Timeline({
 
   // Mouse event listeners
   useEffect(() => {
-    if (draggingNote || resizingNote) {
+    if (draggingNote || resizingNote || draggingAudio || resizingAudio) {
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
       return () => {
@@ -347,7 +417,7 @@ export function Timeline({
         window.removeEventListener('mouseup', handleMouseUp);
       };
     }
-  }, [draggingNote, resizingNote]);
+  }, [draggingNote, resizingNote, draggingAudio, resizingAudio]);
 
   useEffect(() => {
     if (isDraggingPlayhead) {
@@ -384,7 +454,12 @@ export function Timeline({
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
-        handleDeleteNotes(selectedNotes, dslCode, tempo, onCodeChange, setSelectedNotes);
+        if (selectedNotes.length > 0) {
+          handleDeleteNotes(selectedNotes, dslCode, tempo, onCodeChange, setSelectedNotes);
+        } else if (selectedAudioId && onDeleteAudioClip) {
+          onDeleteAudioClip(selectedAudioId);
+          setSelectedAudioId(null);
+        }
       }
 
       if (ctrlOrCmd && e.key === 'c') {
@@ -421,7 +496,7 @@ export function Timeline({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedNotes, copiedNotes, currentTime, tracks, dslCode, tempo, snapValue, snapEnabled, onCodeChange]);
+  }, [selectedNotes, copiedNotes, currentTime, tracks, dslCode, tempo, snapValue, snapEnabled, onCodeChange, selectedAudioId, onDeleteAudioClip]);
 
   // Auto-scroll to keep playhead visible (like DAWs)
   useEffect(() => {
@@ -451,8 +526,13 @@ export function Timeline({
       return Math.max(max, trackDuration);
     }, 10);
   }, [tracks, parsedNotesMap]);
+  // Include audio clips in max duration calculation
+  const adjustedMaxDuration = useMemo(() => {
+    const clipsMax = (audioClips || []).reduce((m, c) => Math.max(m, c.start + c.duration), 0);
+    return Math.max(maxDuration, clipsMax);
+  }, [maxDuration, audioClips]);
 
-  const totalWidth = (maxDuration + 4) * zoom;
+  const totalWidth = (adjustedMaxDuration + 4) * zoom;
 
   return (
     <div className="w-full h-full bg-gray-950 border border-white/10 rounded-xl overflow-hidden flex flex-col relative">
@@ -474,7 +554,7 @@ export function Timeline({
 
         <div className="flex items-center gap-4">
           <div className="text-xs text-gray-400">
-            {selectedNotes.length > 0 && `Press Delete to remove ${selectedNotes.length} note${selectedNotes.length > 1 ? 's' : ''}`}
+            {selectedNotes.length > 0 ? `Press Delete to remove ${selectedNotes.length} note${selectedNotes.length > 1 ? 's' : ''}` : (selectedAudioId ? 'Press Delete to remove selected audio clip' : '')}
           </div>
 
           {/* Snap controls */}
@@ -526,6 +606,12 @@ export function Timeline({
               <div className="text-xs text-gray-500">
                 {track.instrument?.split('/').pop()}
               </div>
+            </div>
+          ))}
+          {(audioClips || []).map(c => (
+            <div key={c.id} className="w-48 h-20 bg-gray-900 border-r border-b border-white/5 p-2">
+              <div className="text-white font-medium text-sm">{c.id}</div>
+              <div className="text-xs text-gray-500">Vocal</div>
             </div>
           ))}
         </div>
@@ -765,6 +851,65 @@ export function Timeline({
                       )}
                     </div>
                   ))}
+
+                  {/* (audio clips are rendered in dedicated vocal rows below) */}
+                </div>
+              );
+            })}
+
+            {/* Vocal/audio clip rows (each clip gets its own track row) */}
+            {(audioClips || []).map((clip) => {
+              const subdivisionLocal = getGridSubdivision(zoom, snapValue, snapEnabled).subdivision;
+              return (
+                <div key={clip.id} className="relative h-20 bg-gray-950 border-b border-white/5">
+                  <div
+                    className="absolute inset-0 pointer-events-none"
+                    style={{
+                      backgroundImage: `
+                        repeating-linear-gradient(
+                          90deg,
+                          rgb(55, 65, 81) 0px,
+                          rgb(55, 65, 81) 1px,
+                          transparent 1px,
+                          transparent ${4 * zoom}px
+                        ),
+                        repeating-linear-gradient(
+                          90deg,
+                          rgba(55, 65, 81, 0.7) 0px,
+                          rgba(55, 65, 81, 0.7) 1px,
+                          transparent 1px,
+                          transparent ${subdivisionLocal < 1 ? zoom : 4 * zoom}px
+                        ),
+                        repeating-linear-gradient(
+                          90deg,
+                          rgba(55, 65, 81, 0.4) 0px,
+                          rgba(55, 65, 81, 0.4) 1px,
+                          transparent 1px,
+                          transparent ${subdivisionLocal * zoom}px
+                        )
+                      `,
+                      backgroundSize: `${totalWidth}px 100%`,
+                      backgroundPosition: '0 0'
+                    }}
+                  />
+
+                  {/* Render the clip itself */}
+                  <div
+                    key={`${clip.id}-clip`}
+                    className={`absolute top-4 bottom-4 bg-green-600 hover:bg-green-500 rounded transition-colors ${selectedAudioId === clip.id ? 'ring-2 ring-white' : ''} ${draggingNote || resizingNote ? 'cursor-grabbing' : 'cursor-grab'}`}
+                    style={{
+                      left: `${((draggingAudio && draggingAudio.id === clip.id && draggingAudio.currentStart !== undefined) ? draggingAudio.currentStart : clip.start) * zoom}px`,
+                      width: `${(resizingAudio && resizingAudio.id === clip.id && resizingAudio.currentDuration !== undefined) ? resizingAudio.currentDuration * zoom : clip.duration * zoom}px`
+                    }}
+                    onMouseDown={(e) => handleAudioMouseDown(e, clip.id, clip.id, false)}
+                  >
+                    <div className="text-xs text-white p-1 truncate pointer-events-none">Vocal</div>
+
+                    <div
+                      className="absolute right-0 top-0 bottom-0 w-2 bg-white/30 hover:bg-white/50 cursor-ew-resize"
+                      onMouseDown={(e) => handleAudioMouseDown(e, clip.id, clip.id, true)}
+                    />
+                  </div>
                 </div>
               );
             })}
