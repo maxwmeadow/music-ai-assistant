@@ -17,17 +17,17 @@ MODEL_FILES = [
         "size_mb": 135
     },
     {
-        "url": f"{R2_BASE_URL}/beatbox2drums/checkpoints/onset_detector/best_onset_model.h5",
+        "url": f"{R2_BASE_URL}/beatbox2drums/checkpoints/best_onset_model.h5",
         "path": "beatbox2drums/checkpoints/onset_detector/best_onset_model.h5",
         "size_mb": 3.7
     },
     {
-        "url": f"{R2_BASE_URL}/beatbox2drums/checkpoints/drum_classifier/best_model_multi_input.pth",
+        "url": f"{R2_BASE_URL}/beatbox2drums/checkpoints/best_model_multi_input.pth",
         "path": "beatbox2drums/checkpoints/drum_classifier/best_model_multi_input.pth",
         "size_mb": 1.5
     },
     {
-        "url": f"{R2_BASE_URL}/beatbox2drums/checkpoints/drum_classifier/feature_normalization.npz",
+        "url": f"{R2_BASE_URL}/beatbox2drums/checkpoints/feature_normalization.npz",
         "path": "beatbox2drums/checkpoints/drum_classifier/feature_normalization.npz",
         "size_mb": 0.001
     }
